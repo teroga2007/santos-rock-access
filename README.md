@@ -1,4 +1,14 @@
-# Santos Rock Access — Database foundation
+# Santos Rock Access
+
+Frontend inicial: React + TypeScript + Vite + Supabase Auth. Incluye acceso por invitación, configuración de contraseña y dashboard de eventos protegido por sesión y RLS. Ver [configuración del frontend](docs/frontend.md).
+
+```bash
+npm install
+# Copiar .env.example a .env.local y completar las variables públicas
+npm run dev -- --port 5173 --strictPort
+```
+
+## Database foundation
 
 ## Scope of migration 001
 

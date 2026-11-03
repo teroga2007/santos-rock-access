@@ -1,0 +1,74 @@
+{
+  "run": "534acbcc-56d9-4eeb-83fa-d77ccbc0a1b0",
+  "project": "fglmoixfvfgygoxhikmg",
+  "started_at": "2026-11-03T16:26:10.222Z",
+  "scenarios": [
+    {
+      "scenario": "same-qr",
+      "sessions": 4,
+      "independent_backends": 4,
+      "maximum_overlap": 3,
+      "results": [
+        "duplicate",
+        "duplicate",
+        "duplicate",
+        "accepted"
+      ]
+    },
+    {
+      "scenario": "same-request-retry",
+      "sessions": 4,
+      "independent_backends": 4,
+      "maximum_overlap": 4,
+      "results": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ]
+    },
+    {
+      "scenario": "void-versus-scan",
+      "sessions": 2,
+      "independent_backends": 2,
+      "maximum_overlap": 2,
+      "results": [
+        "rejected:23514",
+        "accepted"
+      ]
+    },
+    {
+      "scenario": "reissue-versus-scan",
+      "sessions": 2,
+      "independent_backends": 2,
+      "maximum_overlap": 2,
+      "results": [
+        "rejected:23514",
+        "accepted"
+      ]
+    },
+    {
+      "scenario": "different-qr",
+      "sessions": 4,
+      "independent_backends": 4,
+      "maximum_overlap": 4,
+      "results": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ]
+    }
+  ],
+  "cleanup_verified": true,
+  "limitation": "SQL con claims simulados; no mide JWT, cámara, PostgREST ni rendimiento de 999 asistentes. Cada operación retiene sus locks 0.5 s para forzar contención.",
+  "invariants": {
+    "one_acceptance_per_ticket": true,
+    "retry_acceptances": 1,
+    "retry_audits": 1,
+    "retry_requests": 1,
+    "same_qr_acceptances": 1
+  },
+  "finished_at": "2026-11-03T16:26:45.652Z",
+  "passed": true
+}
