@@ -12,12 +12,12 @@ type Pending = { args: Issue; qr: string };
 const sources: Record<string, string> = { complimentary: 'Cortesía / acreditación', sinpe: 'SINPE', door: 'Puerta', other: 'Otro' };
 const statuses: Record<string, string> = { issued: 'Emitida', redeemed: 'Utilizada', void: 'Anulada' };
 function errorText(code: string) {
-  if (code === 'PGRST202') return 'La emisión todavía no está habilitada en la base de datos. Falta aplicar la migración 006.';
-  if (code === '42501') return 'Tu cuenta no tiene permiso para esta operación.';
+  if (code === 'PGRST202') return 'La emisión no está disponible. Contacte al administrador.';
+  if (code === '42501') return 'Su cuenta no tiene permiso para esta operación.';
   if (code === '23514') return 'El evento está cerrado, el tipo no corresponde al evento o su cupo está completo.';
   if (code === '23505') return 'Ese tipo de entrada o credencial ya existe.';
-  if (code === '22023') return 'Revisá los datos y la referencia del pago.';
-  return 'No se pudo confirmar la operación. Revisá la conexión y volvé a intentar.';
+  if (code === '22023') return 'Revise los datos y la referencia del pago.';
+  return 'No se pudo confirmar la operación. Revise la conexión y vuelva a intentar.';
 }
 
 export function EventTickets({ eventId, organizationId, userId, eventStatus, refreshKey = 0, onPendingChange, onChanged }: { eventId: string; organizationId: string; userId: string; eventStatus: string; refreshKey?: number; onPendingChange?: (value: boolean) => void; onChanged?: () => void }) {
@@ -35,6 +35,7 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
   const inFlight = useRef(false);
   const [result, setResult] = useState<{ id: string; qr: string; name: string; token: string; email: string | null } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [view, setView] = useState('list');
   const [action, setAction] = useState<{ ticket: Ticket; action: 'void' | 'reissue' } | null>(null);
   const [actionPending, setActionPending] = useState(false);
   const [importPending, setImportPending] = useState(false);
@@ -57,7 +58,7 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
       const admin = org.data?.some(m => m.role === 'owner' || m.role === 'admin') || event.data?.some(m => m.role === 'admin');
       setPermission(admin ? 'admin' : event.data?.some(m => m.role === 'supervisor') ? 'supervisor' : null);
       setLoading(false);
-    }).catch(() => { if (active) { setError('No se pudo verificar tu acceso a las entradas.'); setLoading(false); } });
+    }).catch(() => { if (active) { setError('No se pudo verificar su acceso a las entradas.'); setLoading(false); } });
     return () => { active = false; };
   }, [eventId, organizationId, userId]);
 
@@ -92,7 +93,7 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
       const { error } = await supabase.rpc('create_ticket_type', { p_event_id: eventId, p_name: String(data.get('name')).trim(), p_capacity: data.get('capacity') ? Number(data.get('capacity')) : null, p_access_zone: String(data.get('zone')).trim() });
       if (error) { setError(errorText(error.code)); return; }
       form.reset(); setMessage('Tipo de entrada creado.'); setRevision(v => v + 1); onChanged?.();
-    } catch { setError('No se pudo confirmar la creación. Actualizá los tipos antes de reintentar.'); }
+    } catch { setError('No se pudo confirmar la creación. Actualice los tipos antes de reintentar.'); }
     finally { inFlight.current = false; setBusy(false); }
   }
 
@@ -106,10 +107,10 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
         if (['42501', '23514', '23505', '22023', 'PGRST202'].includes(error.code)) setPending(null);
         return;
       }
-      if (typeof data !== 'string') { setError('Respuesta inesperada. Reintentá la misma solicitud para confirmar la emisión.'); return; }
+      if (typeof data !== 'string') { setError('Respuesta inesperada. Reintente la misma solicitud para confirmar la emisión.'); return; }
       setResult({ id: data, qr: request.qr, name: request.args.p_full_name, token: request.args.p_token, email: request.args.p_email }); setSaved(false); setPending(null);
       setPage(0); setRevision(v => v + 1); onChanged?.();
-    } catch { setError('No se pudo confirmar la emisión. Reintentá esta misma solicitud; no se emitirá una segunda entrada.'); }
+    } catch { setError('No se pudo confirmar la emisión. Reintente esta misma solicitud; no se emitirá una segunda entrada.'); }
     finally { inFlight.current = false; setBusy(false); }
   }
 
@@ -126,36 +127,36 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
       setPending(request);
       inFlight.current = false;
       await send(request);
-    } catch { setError('No se pudo preparar el código QR. Revisá que el sitio use HTTPS o localhost.'); }
+    } catch { setError('No se pudo preparar el código QR. Vuelva a intentar o contacte al administrador.'); }
     finally { inFlight.current = false; setBusy(false); }
   }
 
   if (!permission) return error ? <p className="notice" role="alert">{error}</p> : null;
   return <section className="details-panel ticket-panel" aria-label="Entradas y acreditaciones"><h2>Entradas y acreditaciones</h2>
-    <p>Accesos individuales de Santos Rock. Cada QR representa una entrada y admite un único ingreso confirmado en este evento.</p>
+
     {error && <p className="notice" role="alert">{error}</p>}{message && <p role="status" className="created-message">{message}</p>}
-    <button className="quiet" disabled={busy || loading} onClick={() => setRevision(v => v + 1)}>Actualizar entradas</button>
-    {permission === 'admin' && <Suspense fallback={<p role="status">Cargando cola de correo…</p>}><EventEmailQueue eventId={eventId}/></Suspense>}
+    <nav className="ticket-nav" aria-label="Herramientas de entradas">{(permission === 'admin' ? [['list', 'Listado'], ...(!closed ? [['issue', 'Emitir entrada'], ['import', 'Importar CSV'], ['types', 'Tipos de entrada']] : []), ['mail', 'Correos']] : [['list', 'Listado']]).map(([id, label]) => <button className="btn quiet" key={id} aria-current={view === id ? 'page' : undefined} disabled={view !== id && (busy || !!pending || (!!result && !saved) || actionPending || importPending || !!action)} onClick={() => setView(id)}>{label}</button>)}</nav>
+    {permission === 'admin' && view === 'mail' && <Suspense fallback={<p role="status">Cargando cola de correo…</p>}><EventEmailQueue eventId={eventId}/></Suspense>}
     {permission === 'admin' && !closed && <>
-      <Suspense fallback={<p role="status">Cargando importación CSV…</p>}><TicketImport eventId={eventId} types={types} disabled={busy || loading || !!pending || !!action || (!!result && !saved)} onProtectedChange={setImportPending} onChanged={() => { setRevision(v => v + 1); onChanged?.(); }}/></Suspense>
-      <details className="type-setup"><summary>Configurar un tipo de entrada</summary><p>Por ejemplo: General, Banda, Prensa o Producción. El cupo es por tipo.</p><form onSubmit={createType}><fieldset disabled={busy || !!pending || !!action || importPending}><label>Nombre<input name="name" required minLength={2} maxLength={100}/></label><label>Cupo (vacío = sin límite)<input name="capacity" type="number" min={0} max={2147483647} step={1}/></label><label>Zona de acceso<input name="zone" required maxLength={80} defaultValue="general"/></label><button className="primary">Crear tipo</button></fieldset></form></details>
-      {result ? <div className="issued-ticket">
+      <div hidden={view !== 'import'}><Suspense fallback={<p role="status">Cargando importación CSV…</p>}><TicketImport eventId={eventId} types={types} disabled={busy || loading || !!pending || !!action || (!!result && !saved)} onProtectedChange={setImportPending} onChanged={() => { setRevision(v => v + 1); onChanged?.(); }}/></Suspense></div>
+      <div hidden={view !== 'types'}><details className="type-setup" open><summary>Nuevo tipo de entrada</summary><p>Por ejemplo: General, Banda, Prensa o Producción. El cupo es por tipo.</p><form onSubmit={createType}><fieldset disabled={busy || !!pending || !!action || importPending}><label>Nombre<input name="name" required minLength={2} maxLength={100}/></label><label>Cupo (vacío = sin límite)<input name="capacity" type="number" min={0} max={2147483647} step={1}/></label><label>Zona de acceso<input name="zone" required maxLength={80} defaultValue="general"/></label><button className="btn primary">Crear tipo</button></fieldset></form></details></div>
+      <div hidden={view !== 'issue'}>{result ? <div className="issued-ticket">
         <h3>Entrada emitida</h3><p>{result.name}</p>
         <img src={result.qr} alt="Código QR de la entrada emitida" width={300} height={300}/>
         <p className="ticket-id">{result.id}</p>
-        <a className="primary download-qr" href={result.qr} download={`santos-rock-${result.id}.png`}>Descargar QR</a>
-        <p>Guardá el QR antes de salir.</p>
-        {result.email ? <SendTicketEmail items={[{ ticket_id: result.id, token: result.token }]}/> : <p>No se indicó correo del titular. Podés entregar el QR descargado manualmente.</p>}
+        <a className="btn primary download-qr" href={result.qr} download={`santos-rock-${result.id}.png`}>Descargar QR</a>
+        <p>Guarde el QR antes de salir.</p>
+        {result.email ? <SendTicketEmail items={[{ ticket_id: result.id, token: result.token }]}/> : <p>No se indicó correo del titular. Puede entregar el QR descargado manualmente.</p>}
         <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el QR</label>
-        <button className="quiet" disabled={!saved} onClick={() => setResult(null)}>Emitir otra entrada</button>
+        <button className="btn quiet" disabled={!saved} onClick={() => setResult(null)}>Emitir otra entrada</button>
       </div>
-      : pending ? <div className="notice"><p>La solicitud está pendiente de confirmación. Conservá esta pantalla abierta.</p><button className="quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma emisión'}</button></div>
-      : types.length > 0 && <form onSubmit={issue} className="issue-form"><h3>Emitir una entrada</h3><fieldset disabled={busy || loading || !!action || importPending}><label>Tipo<select name="type" required>{types.map(type => <option key={type.id} value={type.id}>{type.name} · {type.access_zone} · {type.capacity === null ? 'sin límite' : `cupo ${type.capacity}`}</option>)}</select></label><label>Nombre del titular<input name="holder" required minLength={2} maxLength={160}/></label><label>Correo (opcional)<input name="email" type="email" maxLength={254}/></label><label>Origen<select value={source} onChange={e => setSource(e.target.value)}>{Object.entries(sources).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>{(source === 'sinpe' || source === 'door') && <><label>Referencia de pago<input name="reference" required maxLength={160}/></label><label className="saved-check"><input type="checkbox" required/> Verifiqué el pago antes de emitir esta entrada</label></>}<button className="primary">{busy ? 'Emitiendo…' : 'Emitir entrada y generar QR'}</button></fieldset></form>}
-      {!loading && !types.length && <p>Creá un tipo de entrada para empezar a emitir.</p>}
+      : pending ? <div className="notice"><p>La solicitud está pendiente de confirmación. Conserve esta pantalla abierta.</p><button className="btn quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma emisión'}</button></div>
+      : types.length > 0 && <form onSubmit={issue} className="issue-form"><h3>Emitir una entrada</h3><fieldset disabled={busy || loading || !!action || importPending}><label>Tipo<select name="type" required>{types.map(type => <option key={type.id} value={type.id}>{type.name} · {type.access_zone} · {type.capacity === null ? 'sin límite' : `cupo ${type.capacity}`}</option>)}</select></label><label>Nombre del titular<input name="holder" required minLength={2} maxLength={160}/></label><label>Correo (opcional)<input name="email" type="email" maxLength={254}/></label><label>Origen<select value={source} onChange={e => setSource(e.target.value)}>{Object.entries(sources).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>{(source === 'sinpe' || source === 'door') && <><label>Referencia de pago<input name="reference" required maxLength={160}/></label><label className="saved-check"><input type="checkbox" required/> Verifiqué el pago antes de emitir esta entrada</label></>}<button className="btn primary">{busy ? 'Emitiendo…' : 'Emitir entrada y generar QR'}</button></fieldset></form>}
+      {!loading && !types.length && <p>Para emitir entradas, agregue primero un tipo en «Tipos de entrada».</p>}</div>
     </>}
     {closed && <p>Este evento está cerrado o cancelado; no admite nuevas emisiones.</p>}
-    <h3>Entradas emitidas</h3>{loading ? <p role="status">Cargando entradas…</p> : tickets.length ? <div className="ticket-table"><table><thead><tr><th>Titular</th><th>Tipo</th><th>Origen</th><th>Estado</th><th>Emitida</th>{permission === 'admin' && <th>Acciones</th>}</tr></thead><tbody>{tickets.map(ticket => <tr key={ticket.id}><td>{ticket.full_name}<small>{ticket.id}</small></td><td>{ticket.type_name}</td><td>{sources[ticket.source] || ticket.source}</td><td>{statuses[ticket.status] || ticket.status}</td><td>{new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }).format(new Date(ticket.issued_at))}</td>{permission === 'admin' && <td>{ticket.status === 'issued' && ticket.source !== 'ticketera' ? <div className="ticket-row-actions"><button className="quiet" disabled={busy || importPending || !!pending || (!!result && !saved) || !!action || closed} onClick={() => { setResult(null); setAction({ ticket, action: 'reissue' }); }}>Reemitir QR</button><button className="quiet" disabled={busy || importPending || !!pending || (!!result && !saved) || !!action} onClick={() => { setResult(null); setAction({ ticket, action: 'void' }); }}>Anular</button></div> : '?'}</td>}</tr>)}</tbody></table></div> : <p>No hay entradas en esta página.</p>}
+    <div hidden={view !== 'list'}><div className="form-heading"><h3>Entradas emitidas</h3><button className="btn quiet" disabled={busy || loading} onClick={() => setRevision(v => v + 1)}>Actualizar</button></div>{loading ? <p role="status">Cargando entradas…</p> : tickets.length ? <div className="ticket-table"><table><thead><tr><th>Titular</th><th>Tipo</th><th>Origen</th><th>Estado</th><th>Emitida</th>{permission === 'admin' && <th>Acciones</th>}</tr></thead><tbody>{tickets.map(ticket => <tr key={ticket.id}><td title={ticket.id}>{ticket.full_name}</td><td>{ticket.type_name}</td><td>{sources[ticket.source] || ticket.source}</td><td><span className={'status-badge status-' + ticket.status}>{statuses[ticket.status] || ticket.status}</span></td><td>{new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }).format(new Date(ticket.issued_at))}</td>{permission === 'admin' && <td>{ticket.status === 'issued' && ticket.source !== 'ticketera' ? <div className="ticket-row-actions"><button className="btn quiet" disabled={busy || importPending || !!pending || (!!result && !saved) || !!action || closed} onClick={() => { setResult(null); setAction({ ticket, action: 'reissue' }); }}>Reemitir QR</button><button className="btn quiet" disabled={busy || importPending || !!pending || (!!result && !saved) || !!action} onClick={() => { setResult(null); setAction({ ticket, action: 'void' }); }}>Anular</button></div> : '—'}</td>}</tr>)}</tbody></table></div> : <p>No hay entradas para mostrar.</p>}
     {action && <Suspense fallback={<p role="status">Cargando acciones de la entrada…</p>}><TicketActions key={action.ticket.id + action.action} ticket={action.ticket} action={action.action} onClose={() => setAction(null)} onChanged={() => { setRevision(v => v + 1); onChanged?.(); }} onPendingChange={setActionPending}/></Suspense>}
-    <div className="ticket-pagination"><button className="quiet" disabled={busy || loading || page === 0} onClick={() => setPage(v => v - 1)}>Anterior</button><span>Página {page + 1}</span><button className="quiet" disabled={busy || loading || tickets.length < 20} onClick={() => setPage(v => v + 1)}>Siguiente</button></div>
+    <div className="ticket-pagination"><button className="btn quiet" disabled={busy || loading || page === 0} onClick={() => setPage(v => v - 1)}>Anterior</button><span>Página {page + 1}</span><button className="btn quiet" disabled={busy || loading || tickets.length < 20} onClick={() => setPage(v => v + 1)}>Siguiente</button></div></div>
   </section>;
 }

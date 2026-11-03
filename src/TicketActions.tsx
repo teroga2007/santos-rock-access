@@ -32,13 +32,13 @@ export function TicketActions({ ticket, action, onClose, onChanged, onPendingCha
     try {
       const { data, error } = await supabase.rpc('manage_ticket_credential', request.args);
       if (error) {
-        setError(error.code === '42501' ? 'No tenés permiso para administrar esta entrada.' : error.code === '23514' ? 'La entrada ya fue usada o anulada, no es nativa, o el evento está cerrado para reemitir.' : error.code === 'PGRST202' ? 'Falta habilitar las acciones de entrada en la base de datos.' : error.code === '22023' ? 'Revisá el motivo y los datos de la solicitud.' : error.code === '23505' ? 'La credencial nueva ya existe; no se aplicó el cambio.' : 'No se pudo confirmar el cambio. Conservá esta pantalla y reintentá la misma solicitud.');
+        setError(error.code === '42501' ? 'No tiene permiso para administrar esta entrada.' : error.code === '23514' ? 'La entrada ya fue usada o anulada, no es nativa, o el evento está cerrado para reemitir.' : error.code === 'PGRST202' ? 'Falta habilitar las acciones de entrada en la base de datos.' : error.code === '22023' ? 'Revise el motivo y los datos de la solicitud.' : error.code === '23505' ? 'La credencial nueva ya existe; no se aplicó el cambio.' : 'No se pudo confirmar el cambio. Conserve esta pantalla y reintente la misma solicitud.');
         if (['42501','23514','PGRST202','22023','23505'].includes(error.code)) setPending(null);
         return;
       }
-      if (data !== ticket.id) { setError('Respuesta inesperada. Reintentá la misma solicitud para confirmar el cambio.'); return; }
+      if (data !== ticket.id) { setError('Respuesta inesperada. Reintente la misma solicitud para confirmar el cambio.'); return; }
       setQr(request.qr); setToken(request.args.p_new_token); setSuccess(true); setPending(null); onChanged();
-    } catch { setError('No se pudo confirmar el cambio. Reintentá la misma solicitud antes de entregar un QR.'); }
+    } catch { setError('No se pudo confirmar el cambio. Reintente la misma solicitud antes de entregar un QR.'); }
     finally { lock.current = false; setBusy(false); }
   }
 
@@ -56,7 +56,7 @@ export function TicketActions({ ticket, action, onClose, onChanged, onPendingCha
       }
       const request: Pending = { qr: image, args: { p_ticket_id: ticket.id, p_action: action, p_request_id: crypto.randomUUID(), p_reason: String(data.get('reason')).trim(), p_new_token: token } };
       setPending(request); lock.current = false; await send(request);
-    } catch { setError('No se pudo preparar la operación. Usá HTTPS o localhost e intentá nuevamente.'); }
+    } catch { setError('No se pudo preparar la operación. Vuelva a intentar o contacte al administrador.'); }
     finally { lock.current = false; setBusy(false); }
   }
 
@@ -66,14 +66,14 @@ export function TicketActions({ ticket, action, onClose, onChanged, onPendingCha
       <p className="created-message">{action === 'void' ? 'Entrada anulada. Sus códigos ya no permiten ingresar.' : 'QR reemitido. Los códigos anteriores quedaron invalidados.'}</p>
       {qr && <>
         <img src={qr} width={300} height={300} alt="Nuevo QR de la misma entrada"/>
-        <a className="primary download-qr" download={`santos-rock-${ticket.id}-nuevo.png`} href={qr}>Descargar nuevo QR</a>
-        <p>Guardá este QR. El envío por correo usa la dirección registrada del titular.</p>
+        <a className="btn primary download-qr" download={`santos-rock-${ticket.id}-nuevo.png`} href={qr}>Descargar nuevo QR</a>
+        <p>Guarde este QR. El envío por correo usa la dirección registrada del titular.</p>
         {token && <SendTicketEmail items={[{ ticket_id: ticket.id, token }]}/>}
         <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el nuevo QR</label>
       </>}
-      <button className="quiet" disabled={protectedState} onClick={onClose}>Terminar</button>
+      <button className="btn quiet" disabled={protectedState} onClick={onClose}>Terminar</button>
     </div>
-    : pending ? <div className="notice"><p>La operación está pendiente de confirmación. No cierres la pantalla.</p><button className="quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma solicitud'}</button></div>
-    : <form onSubmit={submit}><fieldset disabled={busy}><p>{action === 'void' ? 'La entrada dejará de ser válida y liberará su cupo. Esta acción no devuelve pagos ni permite restaurarla desde la aplicación.' : 'Se conserva la misma entrada, titular y cupo. Todos sus QR anteriores dejarán de funcionar.'}</p><label>Motivo<input name="reason" required minLength={5} maxLength={300} placeholder="Ej.: QR perdido por el titular"/></label><label className="saved-check"><input type="checkbox" required/> Confirmo la operación sobre esta entrada sin usar</label><button className="primary">{busy ? 'Guardando…' : action === 'void' ? 'Confirmar anulación' : 'Invalidar QR anterior y generar nuevo'}</button><button type="button" className="quiet" disabled={busy} onClick={onClose}>Cancelar</button></fieldset></form>}
+    : pending ? <div className="notice"><p>La operación está pendiente de confirmación. No cierres la pantalla.</p><button className="btn quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma solicitud'}</button></div>
+    : <form onSubmit={submit}><fieldset disabled={busy}><p>{action === 'void' ? 'La entrada dejará de ser válida y liberará su cupo. Esta acción no devuelve pagos ni permite restaurarla desde la aplicación.' : 'Se conserva la misma entrada, titular y cupo. Todos sus QR anteriores dejarán de funcionar.'}</p><label>Motivo<input name="reason" required minLength={5} maxLength={300} placeholder="Ej.: QR perdido por el titular"/></label><label className="saved-check"><input type="checkbox" required/> Confirmo la operación sobre esta entrada sin usar</label><button className="btn primary">{busy ? 'Guardando…' : action === 'void' ? 'Confirmar anulación' : 'Invalidar QR anterior y generar nuevo'}</button><button type="button" className="btn quiet" disabled={busy} onClick={onClose}>Cancelar</button></fieldset></form>}
   </section>;
 }

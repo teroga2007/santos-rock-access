@@ -50,18 +50,18 @@ export function TicketImport({ eventId, types, disabled, onProtectedChange, onCh
 
   async function send(request: Pending) {
     if (!supabase || lock.current) return;
-    lock.current = true; setBusy(true); setError(''); setProgress('Confirmando la importación en Supabase…');
+    lock.current = true; setBusy(true); setError(''); setProgress('Confirmando importación…');
     try {
       const { data, error } = await supabase.rpc('import_native_tickets', request.args);
       if (error) {
         const definitive = ['42501','23514','23505','22023','23503','PGRST202'].includes(error.code);
-        setError(error.code === '23505' ? 'Este contenido ya fue importado, o una credencial ya existe. No se agregó ninguna entrada. Revisá el listado.' : error.code === '23514' ? 'No hay cupo suficiente, el evento está cerrado o el tipo no corresponde. No se importó ninguna fila.' : error.code === '42501' ? 'No tenés permiso para importar entradas en este evento.' : error.code === '22023' ? 'Revisá las filas, los nombres y las referencias de pago. No se importó ninguna fila.' : error.code === 'PGRST202' ? 'Falta habilitar la importación en la base de datos.' : 'No se pudo confirmar el lote. Conservá esta pantalla y reintentá la misma importación.');
+        setError(error.code === '23505' ? 'Este contenido ya fue importado, o una credencial ya existe. No se agregó ninguna entrada. Revise el listado.' : error.code === '23514' ? 'No hay cupo suficiente, el evento está cerrado o el tipo no corresponde. No se importó ninguna fila.' : error.code === '42501' ? 'No tiene permiso para importar entradas en este evento.' : error.code === '22023' ? 'Revise las filas, los nombres y las referencias de pago. No se importó ninguna fila.' : error.code === 'PGRST202' ? 'Falta habilitar la importación en la base de datos.' : 'No se pudo confirmar el lote. Conserve esta pantalla y reintente la misma importación.');
         if (definitive) { setPending(null); URL.revokeObjectURL(request.url); urlRef.current = null; }
         return;
       }
-      if (!Array.isArray(data) || data.length !== request.count) { setError('Respuesta inesperada. Reintentá el mismo lote para confirmar el resultado.'); return; }
+      if (!Array.isArray(data) || data.length !== request.count) { setError('Respuesta inesperada. Reintente el mismo lote para confirmar el resultado.'); return; }
       setResult({ ...request, tickets: data }); setPending(null); setSaved(false); onChanged();
-    } catch { setError('Sin confirmación del servidor. No entregués los QR todavía; reintentá el mismo lote.'); }
+    } catch { setError('Sin confirmación del servidor. No entregue los QR todavía; reintente el mismo lote.'); }
     finally { lock.current = false; setBusy(false); setProgress(''); }
   }
 
@@ -91,7 +91,7 @@ export function TicketImport({ eventId, types, disabled, onProtectedChange, onCh
       urlRef.current = url;
       const request: Pending = { url, count: rows.length, args: { p_event_id: eventId, p_type_id: selectedType, p_source: source, p_batch_id: batchId, p_rows: payload } };
       setPending(request); lock.current = false; await send(request);
-    } catch { setError('No se pudo preparar el archivo de QR. Usá HTTPS o localhost y volvé a intentar.'); }
+    } catch { setError('No se pudo preparar el archivo de QR. Vuelva a intentar o contacte al administrador.'); }
     finally { lock.current = false; setBusy(false); setProgress(''); }
   }
 
@@ -101,23 +101,23 @@ export function TicketImport({ eventId, types, disabled, onProtectedChange, onCh
     urlRef.current = null; setResult(null); setPending(null); setText(''); setFilename(''); setError(''); setSaved(false); setConfirmed(false);
   }
 
-  return <details className="type-setup import-panel"><summary>Importar compradores desde CSV</summary><p>Una fila = una entrada. Hasta 100 personas por lote, con el mismo tipo y origen. No importa códigos de LaTiqueteraCR.</p>
+  return <section className="import-panel"><h3>Importar desde CSV</h3><p>Hasta 100 personas por archivo, con el mismo tipo y origen. Una entrada por fila.</p>
     {error && <p className="notice" role="alert">{error}</p>}{progress && <p role="status">{progress}</p>}
     {result ? <div className="issued-ticket">
       <h3>{result.count} entradas importadas</h3><p className="ticket-id">Lote: {result.args.p_batch_id}</p>
-      <a className="primary download-qr" href={result.url} download={`santos-rock-${result.args.p_batch_id}.zip`}>Descargar todos los QR (ZIP)</a>
+      <a className="btn primary download-qr" href={result.url} download={`santos-rock-${result.args.p_batch_id}.zip`}>Descargar todos los QR (ZIP)</a>
       <p>El ZIP contiene un PNG por persona y personas.csv para relacionar nombres, correos y archivos.</p>
       <SendTicketEmail items={result.tickets.filter(ticket => result.args.p_rows[ticket.row - 1]?.email).map(ticket => ({ ticket_id: ticket.ticket_id, token: result.args.p_rows[ticket.row - 1].token }))}/>
-      <p>Solo se incluyen en el correo las personas con dirección válida. Guardá el ZIP para la entrega manual de las demás.</p>
+      <p>Las entradas sin correo se entregan manualmente.</p>
       <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el ZIP</label>
-      <button className="quiet" disabled={!saved} onClick={clear}>Preparar otro lote</button>
+      <button className="btn quiet" disabled={!saved} onClick={clear}>Preparar otro lote</button>
     </div>
-    : pending ? <div className="notice"><p>El lote está pendiente de confirmación. No cierres esta pantalla.</p><button className="quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma importación'}</button></div>
-    : <><a className="quiet template-link" download="plantilla-santos-rock.csv" href={'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFFnombre,correo,referencia\r\nPersona de ejemplo,persona@example.com,REF-EJEMPLO\r\n')}>Descargar plantilla CSV</a><fieldset disabled={disabled || busy}>
-      <label>Tipo de entrada<select value={typeId || types[0]?.id || ''} onChange={e => setTypeId(e.target.value)}><option value="" disabled>Creá un tipo de entrada primero</option>{types.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
+    : pending ? <div className="notice"><p>El lote está pendiente de confirmación. No cierres esta pantalla.</p><button className="btn quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma importación'}</button></div>
+    : <><a className="btn quiet template-link" download="plantilla-santos-rock.csv" href={'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFFnombre,correo,referencia\r\nPersona de ejemplo,persona@example.com,REF-EJEMPLO\r\n')}>Descargar plantilla CSV</a><fieldset disabled={disabled || busy}>
+      <label>Tipo de entrada<select value={typeId || types[0]?.id || ''} onChange={e => setTypeId(e.target.value)}><option value="" disabled>Cree un tipo de entrada primero</option>{types.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
       <label>Origen<select value={source} onChange={e => setSource(e.target.value)}><option value="sinpe">SINPE</option><option value="complimentary">Cortesías / acreditaciones</option><option value="other">Otro</option></select></label>
       <label>Archivo CSV (UTF-8, máximo 1 MB)<input type="file" accept=".csv,text/csv" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void load(file); }}/></label>
-      {text && <><p>{filename} · {rows.length} personas en vista previa</p>{errors.length > 0 && <div className="notice" role="alert"><ul>{errors.slice(0,20).map((error, i) => <li key={i}>{error}</li>)}</ul>{errors.length > 20 && <p>Hay más errores; corregí el archivo antes de continuar.</p>}</div>}<div className="ticket-table import-preview"><table><thead><tr><th>Fila</th><th>Nombre</th><th>Correo</th><th>Referencia</th></tr></thead><tbody>{rows.map((row, i) => <tr key={i}><td>{i + 2}</td><td>{row.name}</td><td>{row.email || '—'}</td><td>{row.reference || '—'}</td></tr>)}</tbody></table></div><label className="saved-check"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)}/> Revisé las personas y {source === 'sinpe' ? 'verifiqué todos los pagos SINPE' : 'autorizo estas entradas'}. Cada fila representa una persona distinta.</label><button className="primary" disabled={busy || disabled || !confirmed || !!errors.length || !rows.length || !types.length} onClick={prepare}>Importar {rows.length} personas y generar sus QR</button></>}
+      {text && <><p>{filename} · {rows.length} personas en vista previa</p>{errors.length > 0 && <div className="notice" role="alert"><ul>{errors.slice(0,20).map((error, i) => <li key={i}>{error}</li>)}</ul>{errors.length > 20 && <p>Hay más errores; corrija el archivo antes de continuar.</p>}</div>}<div className="ticket-table import-preview"><table><thead><tr><th>Fila</th><th>Nombre</th><th>Correo</th><th>Referencia</th></tr></thead><tbody>{rows.map((row, i) => <tr key={i}><td>{i + 2}</td><td>{row.name}</td><td>{row.email || '—'}</td><td>{row.reference || '—'}</td></tr>)}</tbody></table></div><label className="saved-check"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)}/> Revisé las personas y {source === 'sinpe' ? 'verifiqué todos los pagos SINPE' : 'autorizo estas entradas'}. Cada fila representa una persona distinta.</label><button className="btn primary" disabled={busy || disabled || !confirmed || !!errors.length || !rows.length || !types.length} onClick={prepare}>Importar {rows.length} personas y generar sus QR</button></>}
     </fieldset></>}
-  </details>;
+  </section>;
 }

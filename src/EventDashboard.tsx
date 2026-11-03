@@ -11,7 +11,7 @@ type Dashboard = {
 };
 const sourceLabels: Record<string, string> = { complimentary: 'Cortesías / acreditaciones', sinpe: 'SINPE', door: 'Puerta', other: 'Otro', ticketera: 'Ticketera' };
 const resultLabels: Record<string, string> = { accepted: 'Ingreso autorizado', duplicate: 'Entrada ya utilizada', invalid: 'Código no válido', void: 'Entrada anulada', wrong_event: 'Otro evento', error: 'Ingreso deshabilitado' };
-const statusLabels: Record<string, string> = { draft: 'Borrador', published: 'Publicado', live: 'En vivo', closed: 'Cerrado', cancelled: 'Cancelado' };
+const statusLabels: Record<string, string> = { draft: 'Borrador', published: 'Publicado', live: 'En vivo', closed: 'Finalizado', cancelled: 'Cancelado' };
 const time = (value: string) => new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Costa_Rica' }).format(new Date(value));
 
 export function EventDashboard({ eventId, userId, refreshKey }: { eventId: string; userId: string; refreshKey: string }) {
@@ -62,16 +62,16 @@ export function EventDashboard({ eventId, userId, refreshKey }: { eventId: strin
   const activeTickets = admitted + (data?.totals.pending || 0);
   const percentage = activeTickets ? Math.round(admitted * 100 / activeTickets) : 0;
   return <section className="details-panel event-dashboard" aria-label="Panel de control del evento">
-    <div className="form-heading"><h2>Panel de control</h2><button className="quiet" disabled={busy} onClick={() => reload.current()}><RefreshCw size={16}/>{busy ? 'Actualizando…' : 'Actualizar'}</button></div>
-    <p>Actualización cada 15 segundos mientras esta pestaña esté visible.</p>
-    {error && <div className="notice" role="alert">{error}<button className="quiet" disabled={busy} onClick={() => setRevision(v => v + 1)}>Reintentar</button></div>}
+    <div className="form-heading"><h2>Resumen de accesos</h2><button className="btn quiet" disabled={busy} onClick={() => reload.current()}><RefreshCw size={16}/>{busy ? 'Actualizando…' : 'Actualizar'}</button></div>
+
+    {error && <div className="notice" role="alert">{error}<button className="btn quiet" disabled={busy} onClick={() => setRevision(v => v + 1)}>Reintentar</button></div>}
     {!data ? <p role="status">{busy ? 'Cargando resumen…' : 'Resumen no disponible.'}</p> : <>
-      <p className="dashboard-updated">Última consulta: {time(data.generated_at)} · {statusLabels[data.event_status] || data.event_status}</p>
+      <p className="dashboard-updated">Actualizado: {time(data.generated_at)} · {statusLabels[data.event_status] || data.event_status} · Cada 15 s</p>
       <dl className="access-metrics"><div><dt>Entradas emitidas</dt><dd>{data.totals.total}</dd></div><div><dt>Ingresos</dt><dd>{admitted}</dd></div><div><dt>Pendientes</dt><dd>{data.totals.pending}</dd></div><div><dt>Anuladas</dt><dd>{data.totals.voided}</dd></div></dl>
-      <div className="access-progress"><label htmlFor="event-admission-progress">Ingresó el {percentage}% de las entradas vigentes</label><progress id="event-admission-progress" max={activeTickets || 1} value={admitted}/><small>Las entradas vigentes excluyen las anuladas. Este porcentaje no representa el aforo del recinto.</small></div>
-      <h3>Por origen</h3>{data.sources.length ? <div className="ticket-table"><table><thead><tr><th>Origen</th><th>Emitidas</th><th>Ingresos</th><th>Pendientes</th><th>Anuladas</th></tr></thead><tbody>{data.sources.map(source => <tr key={source.source}><td>{sourceLabels[source.source] || source.source}</td><td>{source.total}</td><td>{source.admitted}</td><td>{source.pending}</td><td>{source.voided}</td></tr>)}</tbody></table></div> : <p>Todavía no se emitieron entradas.</p>}
+      <div className="access-progress"><label htmlFor="event-admission-progress">Ingresó el {percentage}% de las entradas vigentes</label><progress id="event-admission-progress" max={activeTickets || 1} value={admitted}/><small>Entradas vigentes, sin contar anuladas. No representa el aforo del recinto.</small></div>
+      <details className="type-setup"><summary>Desglose por origen y tipo</summary><h3>Por origen</h3>{data.sources.length ? <div className="ticket-table"><table><thead><tr><th>Origen</th><th>Emitidas</th><th>Ingresos</th><th>Pendientes</th><th>Anuladas</th></tr></thead><tbody>{data.sources.map(source => <tr key={source.source}><td>{sourceLabels[source.source] || source.source}</td><td>{source.total}</td><td>{source.admitted}</td><td>{source.pending}</td><td>{source.voided}</td></tr>)}</tbody></table></div> : <p>Todavía no se emitieron entradas.</p>}
       <h3>Por tipo y zona</h3>{data.types.length ? <div className="ticket-table"><table><thead><tr><th>Tipo / zona</th><th>Ingresos</th><th>Pendientes</th><th>Cupo disponible</th></tr></thead><tbody>{data.types.map(type => <tr key={type.id}><td>{type.name}<small>{type.access_zone}</small></td><td>{type.admitted}</td><td>{type.pending}</td><td>{type.capacity === null ? 'Sin límite' : Math.max(0, type.capacity - type.admitted - type.pending)}</td></tr>)}</tbody></table></div> : <p>Todavía no hay tipos de entrada.</p>}
-      <h3>Últimas 15 lecturas</h3><p>Los reintentos de una misma solicitud se muestran una sola vez. Los códigos rechazados por formato en el dispositivo no llegan al servidor.</p>{data.recent.length ? <div className="ticket-table"><table><thead><tr><th>Hora (Costa Rica)</th><th>Resultado</th><th>Tipo / zona</th></tr></thead><tbody>{data.recent.map(scan => <tr key={scan.request_id}><td>{time(scan.created_at)}</td><td><span className={`scan-label ${scan.result === 'accepted' ? 'scan-label-accepted' : ''}`}>{resultLabels[scan.result] || scan.result}</span></td><td>{scan.type_name ? `${scan.type_name} · ${scan.access_zone}` : '—'}</td></tr>)}</tbody></table></div> : <p>Todavía no hay lecturas registradas.</p>}
+      </details><h3>Últimas lecturas</h3>{data.recent.length ? <div className="ticket-table"><table><thead><tr><th>Hora (Costa Rica)</th><th>Resultado</th><th>Tipo / zona</th></tr></thead><tbody>{data.recent.map(scan => <tr key={scan.request_id}><td>{time(scan.created_at)}</td><td><span className={`scan-label ${scan.result === 'accepted' ? 'scan-label-accepted' : ''}`}>{resultLabels[scan.result] || scan.result}</span></td><td>{scan.type_name ? `${scan.type_name} · ${scan.access_zone}` : '—'}</td></tr>)}</tbody></table></div> : <p>Todavía no hay lecturas registradas.</p>}
     </>}
   </section>;
 }

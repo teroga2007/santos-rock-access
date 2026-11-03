@@ -22,3 +22,7 @@ Thumbs.db
 
 # Local Netlify folder
 .netlify
+
+# Browser checks
+test-results/
+playwright-report/

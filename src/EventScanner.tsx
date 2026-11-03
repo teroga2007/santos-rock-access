@@ -54,15 +54,15 @@ export function EventScanner({ eventId, eventStatus, onRedeemed, onPendingChange
       const { data, error } = await supabase.rpc('redeem_ticket', request);
       if (!mounted.current) return;
       if (error) {
-        setError(error.code === '42501' ? 'No tenés acceso al control de ingreso de este evento.' : error.code === 'PGRST202' ? 'Falta habilitar el canje en la base de datos.' : error.code === '54000' ? 'Se alcanzó el límite de lecturas. Esperá un minuto y reintentá.' : 'No se pudo confirmar el resultado. Reintentá la misma lectura. No autoricés el ingreso sin confirmación.');
+        setError(error.code === '42501' ? 'No tiene acceso al control de ingreso de este evento.' : error.code === 'PGRST202' ? 'Falta habilitar el canje en la base de datos.' : error.code === '54000' ? 'Se alcanzó el límite de lecturas. Espere un minuto y reintente.' : 'No se pudo confirmar el resultado. Reintente la misma lectura. No autorice el ingreso sin confirmación.');
         return;
       }
       if (!data || typeof data.result !== 'string' || !(data.result in labels)) {
-        setError('Respuesta inesperada. No autoricés el ingreso; reintentá la misma lectura.'); return;
+        setError('Respuesta inesperada. No autorice el ingreso; reintente la misma lectura.'); return;
       }
       setResult(data as ScanResponse); setPending(null); setManual('');
       if (data.result === 'accepted') { navigator.vibrate?.(100); onRedeemed(); }
-    } catch { if (mounted.current) setError('Sin confirmación del servidor. No autoricés el ingreso; reintentá la misma lectura.'); }
+    } catch { if (mounted.current) setError('Sin confirmación del servidor. No autorice el ingreso; reintente la misma lectura.'); }
     finally { inFlight.current = false; if (mounted.current) setBusy(false); }
   }
 
@@ -74,7 +74,7 @@ export function EventScanner({ eventId, eventStatus, onRedeemed, onPendingChange
     try {
       const request = { p_event_id: eventId, p_token: token, p_request_id: crypto.randomUUID() };
       setPending(request); await send(request);
-    } catch { setError('No se pudo preparar la lectura. Usá HTTPS o localhost.'); locked.current = false; }
+    } catch { setError('No se pudo preparar la lectura. Vuelva a intentar.'); locked.current = false; }
   }
 
   async function start() {
@@ -91,7 +91,7 @@ export function EventScanner({ eventId, eventStatus, onRedeemed, onPendingChange
       });
       if (!mounted.current || current !== generation.current) { scanner.stop(); return; }
       controls.current = scanner; setCamera(true);
-    } catch { if (mounted.current && current === generation.current) { stop(); setError('No se pudo abrir la cámara. Revisá los permisos y usá HTTPS o localhost. También podés cargar la imagen del QR.'); } }
+    } catch { if (mounted.current && current === generation.current) { stop(); setError('No se pudo abrir la cámara. Revise sus permisos o cargue una imagen del QR.'); } }
     finally { if (mounted.current) setStarting(false); }
   }
 
@@ -110,14 +110,18 @@ export function EventScanner({ eventId, eventStatus, onRedeemed, onPendingChange
 
   function manualSubmit(e: FormEvent) { e.preventDefault(); void read(manual); }
   return <section className="details-panel scanner-panel" aria-label="Control de ingreso"><h2><ScanLine size={23}/> Control de ingreso</h2>
-    <p>Escanear o cargar un QR registra el ingreso inmediatamente si la entrada es válida. Solo el resultado del servidor autoriza el acceso.</p>
-    {!live && <p className="notice">El ingreso está deshabilitado. Un administrador debe publicar el evento e iniciar el ingreso.</p>}
+    <p>Una lectura válida registra el ingreso.</p>
+    {!live && <p className="notice">{eventStatus === 'closed' || eventStatus === 'cancelled' ? 'Este evento ya no admite ingresos.' : 'El ingreso aún no está habilitado. Solicite al administrador que lo inicie.'}</p>}
+    <div className="scanner-workspace"><div>
     <div className="camera-box"><video ref={video} autoPlay muted playsInline aria-label="Cámara del escáner"/>{!camera && !starting && <span>Cámara apagada</span>}</div>
-    <div className="scanner-actions"><button className="primary" disabled={!live || starting || camera} onClick={start}><Camera size={17}/>{starting ? 'Abriendo cámara…' : 'Activar cámara'}</button><button className="quiet" disabled={!camera && !starting} onClick={() => { stop(); setCamera(false); setStarting(false); }}><CameraOff size={17}/> Apagar cámara</button></div>
+    <div className="scanner-actions"><button className="btn primary" disabled={!live || starting || camera} onClick={start}><Camera size={17}/>{starting ? 'Abriendo cámara…' : 'Activar cámara'}</button><button className="btn quiet" disabled={!camera && !starting} onClick={() => { stop(); setCamera(false); setStarting(false); }}><CameraOff size={17}/> Apagar cámara</button></div>
+    </div><div className="scanner-feedback" aria-label="Resultado de lectura">
+    {!busy && !result && !error && <div className="scan-idle"><ScanLine size={32}/><h3>{live ? 'Listo para leer' : 'Ingreso deshabilitado'}</h3><p>{live ? 'El resultado aparecerá aquí.' : 'No se pueden validar entradas.'}</p></div>}
     {busy && <p role="status">Confirmando lectura…</p>}
     {error && <p role="alert" className="notice">{error}</p>}
-    {pending && !busy && <button className="quiet" onClick={() => send(pending)}>Reintentar la misma lectura</button>}
-    {result && <div className={`scan-result scan-${result.result}`} role="status" aria-live="polite"><h3>{labels[result.result]}</h3>{result.type_name && <p>{result.type_name} · Zona: {result.access_zone}</p>}{result.redeemed_at && <p>Ingreso registrado: {new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Costa_Rica' }).format(new Date(result.redeemed_at))}</p>}<button className="quiet" onClick={() => { setResult(null); setError(''); locked.current = false; }}>Siguiente lectura</button></div>}
-    <fieldset className="scan-fallback" disabled={!live || busy || !!pending || !!result}><label>Cargar imagen del QR<input type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void image(file); }}/></label><form onSubmit={manualSubmit}><label>Código manual<input value={manual} onChange={e => setManual(e.target.value)} autoComplete="off" spellCheck={false} maxLength={512} placeholder="Credencial sra1_…" required/></label><button className="quiet" disabled={!manual.trim()}>Validar y registrar ingreso</button></form></fieldset>
+    {pending && !busy && <button className="btn quiet" onClick={() => send(pending)}>Reintentar la misma lectura</button>}
+    {result && <div className={`scan-result scan-${result.result}`} role="status" aria-live="polite"><h3>{labels[result.result]}</h3>{result.type_name && <p>{result.type_name} · Zona: {result.access_zone}</p>}{result.redeemed_at && <p>Ingreso registrado: {new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Costa_Rica' }).format(new Date(result.redeemed_at))}</p>}<button className="btn quiet" onClick={() => { setResult(null); setError(''); locked.current = false; }}>Siguiente lectura</button></div>}
+    </div></div>
+    <details className="type-setup scan-alternatives"><summary>Cargar imagen o ingresar código</summary><fieldset className="scan-fallback" disabled={!live || busy || !!pending || !!result}><label>Imagen del QR<input type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void image(file); }}/></label><form onSubmit={manualSubmit}><label>Código de la entrada<input value={manual} onChange={e => setManual(e.target.value)} autoComplete="off" spellCheck={false} maxLength={512} placeholder="sra1_…" required/></label><button className="btn quiet" disabled={!manual.trim()}>Registrar ingreso</button></form></fieldset></details>
   </section>;
 }

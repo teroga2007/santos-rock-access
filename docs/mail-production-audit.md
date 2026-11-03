@@ -42,7 +42,9 @@ Se conectó el componente en las tres pantallas. En emisión individual se muest
 
 - Diagnósticos del worker: `6aea2607426f42c134ea73d8`, publicado a las 12:21 de Costa Rica.
 - Conexión del frontend: `6aea282f2132d16c54be3908`.
-- Publicación por Netlify CLI desde este checkout. Los cambios locales aún deben versionarse y subirse a main para mantener GitHub como fuente del siguiente despliegue automático. No se activaron envíos ni se cambiaron variables remotas.
+- Código del frontend versionado en `4ea009f` y subido a main. Los diagnósticos del backend quedaron versionados previamente en `088c0d1`.
+- Prueba real autorizada: `6aea2a16215b0ddfa203ae70`, con envío temporalmente habilitado y límite conservador de 1 intento.
+- Estado final restaurado: `6aea2a90dfe68967e6792745`, publicado y ready; `MAIL_SENDING_ENABLED=false` y `EMAIL_DAILY_LIMIT=80`, verificados por API. Se modificaron únicamente esas dos variables no secretas para la prueba y su restauración; ninguna clave, DNS ni configuración de Microsoft fue alterada.
 
 Para volver a desplegar el checkout validado, manteniendo el interruptor false:
 
@@ -52,13 +54,26 @@ npm run build
 npx netlify-cli deploy --prod --build
 ```
 
-## Validación pendiente antes de activar
+## Resultado de la validación real
+
+El usuario autorizó expresamente activar temporalmente un único correo al buzón de prueba bajo su control. Antes de la activación se comprobó que había exactamente un trabajo pendiente y ninguno en procesamiento. No se usaron destinatarios reales de eventos.
+
+- Alta en cola desde producción: confirmada por el usuario y por consulta de Supabase.
+- Worker desplegado: aceptación por Brevo a las 12:39:18 de Costa Rica, estado `submitted`, `attempts=1`, provider_id registrado y sin error.
+- Recepción del correo y adjunto PNG: confirmadas por el usuario.
+- PNG leído desde el escáner: primera lectura autorizada, segunda duplicada, confirmadas por el usuario.
+- Límite temporal de prueba restaurado a 80 y envío devuelto a false mediante un despliegue nuevo; no se autoriza operación general por haber aprobado esta prueba.
+- No se reintentaron automáticamente resultados inciertos ni se tocaron entradas de otros asistentes.
+
+## Procedimiento para futuras activaciones controladas
 
 1. Ejecución del nuevo worker confirmada: `worker_disabled` y `configuration_validated`.
-2. Tras Ctrl+F5, emitir/reemitir una entrada sin usar con correo controlado por el usuario y ponerla en cola. Confirmar estado Pending en UI y base de datos.
+2. Emitir/reemitir una entrada sin usar con correo controlado por el usuario y ponerla en cola. Confirmar estado Pending en UI y base de datos.
 3. Verificar que **no haya trabajos pendientes de destinatarios reales de eventos** antes de la prueba. La cola no debe usarse para enviar a terceros durante la validación.
 4. Solicitar autorización explícita para activar temporalmente el envío al único destinatario de prueba. Hasta recibirla, conservar false.
 5. Tras la autorización, ejecutar un envío, comprobar `submitted` y provider_id en Supabase, recepción en el buzón, adjunto PNG, lectura y canje único. `submitted` solo significa aceptación por Brevo, no entrega en bandeja.
 6. Volver a false durante la revisión si todavía no se autorizó la operación normal. No reintentar automáticamente resultados inciertos.
+
+La integración queda validada para este recorrido. Antes de habilitar operación normal, obtener autorización para ese modo y revisar los pendientes que vayan a procesarse. No hay confirmación automática de entrega/bounce por webhook; `submitted` sigue significando aceptación de Brevo. El sitio conserva su protección de acceso de Netlify, que debe contemplarse al dar acceso al equipo de puerta.
 
 Fuentes oficiales consultadas: [programación y límites de Scheduled Functions](https://docs.netlify.com/build/functions/scheduled-functions/) y [API transaccional de Brevo](https://developers.brevo.com/reference/send-transac-email).

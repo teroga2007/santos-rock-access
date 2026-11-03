@@ -6,9 +6,9 @@ const roles = { admin: 'Administrador', supervisor: 'Supervisor', scanner: 'Pers
 type Role = keyof typeof roles;
 type Member = { user_id: string; role: string };
 
-export function EventTeam({ eventId, organizationId, userId }: { eventId: string; organizationId: string; userId: string }) {
+export function EventTeam({ eventId, organizationId, userId, expanded = false, onPendingChange }: { eventId: string; organizationId: string; userId: string; expanded?: boolean; onPendingChange?: (pending: boolean) => void }) {
   const [allowed, setAllowed] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(expanded);
   const [members, setMembers] = useState<Member[]>([]);
   const [assignments, setAssignments] = useState<Member[]>([]);
   const [selected, setSelected] = useState('');
@@ -20,23 +20,24 @@ export function EventTeam({ eventId, organizationId, userId }: { eventId: string
   const [revision, setRevision] = useState(0);
   const [newUser, setNewUser] = useState('');
   const [newRole, setNewRole] = useState<Role>('scanner');
+  useEffect(() => { onPendingChange?.(busy); return () => onPendingChange?.(false); }, [busy, onPendingChange]);
 
   async function provision(e: FormEvent) {
     e.preventDefault();
     if (!supabase || busy) return;
     const id = newUser.trim();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-      setError('Ingresá un UUID de usuario válido.'); return;
+      setError('Ingrese un UUID de usuario válido.'); return;
     }
     setBusy(true); setError(''); setMessage('');
     try {
       const { error } = await supabase.rpc('provision_event_member', { p_event_id: eventId, p_user_id: id, p_role: newRole });
       if (error) {
-        setError(error.code === 'PGRST202' ? 'Aplicá las migraciones 004 y 005 en Supabase para habilitar esta función.' : error.code === '42501' ? 'Solo un administrador de la organización puede incorporar personas.' : error.code === '23514' ? 'La cuenta debe existir y haber sido invitada desde Supabase.' : 'No se pudo incorporar la cuenta. Recargá el equipo antes de reintentar.');
+        setError(error.code === 'PGRST202' ? 'Esta función no está disponible. Contacte al administrador.' : error.code === '42501' ? 'Solo un administrador de la organización puede incorporar personas.' : error.code === '23514' ? 'La cuenta debe tener una invitación válida.' : 'No se pudo incorporar la cuenta. Recargue el equipo antes de reintentar.');
         return;
       }
       setNewUser(''); setMessage('Cuenta incorporada y rol de evento guardado.'); setRevision(value => value + 1);
-    } catch { setError('No se pudo confirmar el cambio. Recargá el equipo antes de reintentar.'); }
+    } catch { setError('No se pudo confirmar el cambio. Recargue el equipo antes de reintentar.'); }
     finally { setBusy(false); }
   }
 
@@ -59,7 +60,7 @@ export function EventTeam({ eventId, organizationId, userId }: { eventId: string
       client.from('event_members').select('user_id,role').eq('event_id', eventId),
     ]).then(([org, event]) => {
       if (!active) return;
-      if (org.error || event.error) { setError('No se pudo cargar el equipo. Cerrá y abrí este panel para reintentar.'); setMembers([]); setAssignments([]); }
+      if (org.error || event.error) { setError('No se pudo cargar el equipo. Cierre y abra este panel para reintentar.'); setMembers([]); setAssignments([]); }
       else { setMembers(org.data || []); setAssignments(event.data || []); }
       setLoading(false);
     }).catch(() => { if (active) { setError('No se pudo conectar para cargar el equipo.'); setLoading(false); } });
@@ -77,38 +78,38 @@ export function EventTeam({ eventId, organizationId, userId }: { eventId: string
     setBusy(true); setError(''); setMessage('');
     try {
       const { error } = await supabase.rpc('assign_event_member', { p_event_id: eventId, p_user_id: selected, p_role: role });
-      if (error) { setError(error.code === '42501' ? 'No tenés permiso para administrar el equipo de este evento.' : error.code === '23514' ? 'La persona debe pertenecer a esta organización. Recargá el equipo.' : 'No se pudo guardar la asignación. Volvé a cargar el equipo antes de reintentar.'); return; }
+      if (error) { setError(error.code === '42501' ? 'No tiene permiso para administrar el equipo de este evento.' : error.code === '23514' ? 'La persona debe pertenecer a esta organización. Recargue el equipo.' : 'No se pudo guardar la asignación. Vuelva a cargar el equipo antes de reintentar.'); return; }
       setMessage('Rol guardado correctamente.'); setRevision(value => value + 1);
-    } catch { setError('No se pudo confirmar el cambio. Volvé a cargar el equipo antes de reintentar.'); }
+    } catch { setError('No se pudo confirmar el cambio. Vuelva a cargar el equipo antes de reintentar.'); }
     finally { setBusy(false); }
   }
 
   if (!allowed) return error ? <p role="alert">{error}</p> : null;
   return <div className="team">
-    <button className="quiet" onClick={() => { setOpen(!open); setMessage(''); }} disabled={busy}><Users size={16}/>{open ? 'Cerrar equipo' : 'Administrar equipo'}</button>
-    {open && <section className="team-panel" aria-label="Equipo del evento"><div className="form-heading"><h3>Equipo del evento</h3><button className="quiet" aria-label="Cerrar equipo" disabled={busy} onClick={() => setOpen(false)}><X size={16}/></button></div>
-      <p>Los roles de evento se asignan a miembros existentes de la organización.</p>
-      <div className="notice">Los propietarios y administradores de organización conservan acceso administrativo a todos sus eventos, aunque se les asigne un rol de puerta aquí.</div>
+    {!expanded && <button className="btn quiet" onClick={() => { setOpen(!open); setMessage(''); }} disabled={busy}><Users size={16}/>{open ? 'Cerrar equipo' : 'Administrar equipo'}</button>}
+    {open && <section className="team-panel" aria-label="Equipo del evento"><div className="form-heading"><h3>Personas y permisos</h3>{!expanded && <button className="btn quiet" aria-label="Cerrar equipo" disabled={busy} onClick={() => setOpen(false)}><X size={16}/></button>}</div>
+
+      <p>Los administradores de la organización mantienen acceso a todos los eventos.</p>
       {error && <div role="alert" className="notice">{error}</div>}
       {message && <p role="status" className="created-message">{message}</p>}
       {loading ? <p role="status">Cargando equipo…</p> : <>
         <ul className="team-list">{members.map(member => {
           const assigned = assignments.find(m => m.user_id === member.user_id);
-          return <li key={member.user_id}><span className="member-id">{member.user_id === userId ? 'Vos' : 'Miembro'}<small>{member.user_id}</small></span><span>{assigned ? roles[assigned.role as Role] : 'Sin asignación'}<small>{member.role === 'owner' ? 'Propietario de organización' : member.role === 'admin' ? 'Administrador de organización' : 'Miembro de organización'}</small></span></li>;
+          return <li key={member.user_id}><span className="member-id">{member.user_id === userId ? 'Usted' : 'Miembro'}<small>{member.user_id}</small></span><span>{assigned ? roles[assigned.role as Role] : 'Sin asignación'}<small>{member.role === 'owner' ? 'Propietario de organización' : member.role === 'admin' ? 'Administrador de organización' : 'Miembro de organización'}</small></span></li>;
         })}</ul>
         {!members.length ? <p>No hay miembros disponibles.</p> : <form onSubmit={save}><fieldset disabled={busy || !!error}>
-          <label>Persona<select value={selected} onChange={e => choose(e.target.value)} required><option value="">Seleccioná un miembro</option>{members.map(member => <option value={member.user_id} key={member.user_id}>{member.user_id === userId ? 'Vos — ' : ''}{member.user_id}</option>)}</select></label>
+          <label>Persona<select value={selected} onChange={e => choose(e.target.value)} required><option value="">Seleccione un miembro</option>{members.map(member => <option value={member.user_id} key={member.user_id}>{member.user_id === userId ? 'Usted — ' : ''}{member.user_id}</option>)}</select></label>
           <label>Rol en este evento<select value={role} onChange={e => setRole(e.target.value as Role)}>{Object.entries(roles).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-          <button className="primary" disabled={!selected || busy}>{busy ? 'Guardando…' : 'Guardar rol'}</button>
+          <button className="btn primary" disabled={!selected || busy}>{busy ? 'Guardando…' : 'Guardar rol'}</button>
         </fieldset></form>}
-        <h4>Incorporar una cuenta invitada</h4>
-        <p>Primero invitá a la persona desde Supabase. Luego copiá su ID de usuario. Se incorporará como miembro básico y tendrá acceso a este evento según el rol elegido.</p>
+        <details className="type-setup"><summary>Agregar una cuenta invitada</summary>
+        <p>Use el ID de una cuenta ya invitada. Solo tendrá los permisos del rol elegido.</p>
         <form onSubmit={provision}><fieldset disabled={busy || loading}>
-          <label>ID de usuario invitado<input value={newUser} onChange={e => setNewUser(e.target.value)} placeholder="UUID de Authentication → Users" required spellCheck={false} autoComplete="off"/></label>
+          <label>ID de usuario invitado<input value={newUser} onChange={e => setNewUser(e.target.value)} placeholder="ID de la cuenta invitada" required spellCheck={false} autoComplete="off"/></label>
           <label>Rol en este evento<select value={newRole} onChange={e => setNewRole(e.target.value as Role)}>{Object.entries(roles).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-          <button className="primary" disabled={!newUser.trim() || busy}>{busy ? 'Guardando…' : 'Incorporar al evento'}</button>
+          <button className="btn primary" disabled={!newUser.trim() || busy}>{busy ? 'Guardando…' : 'Incorporar al evento'}</button>
         </fieldset></form>
-        <p>Las cuentas que ya sean propietarias o administradoras conservan sus permisos de organización. Este formulario no envía correos de invitación.</p>
+        </details>
       </>}
     </section>}
   </div>;

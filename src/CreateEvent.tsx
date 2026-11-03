@@ -17,12 +17,12 @@ export function CreateEvent({ userId, onCreated }: { userId: string; onCreated: 
     const client = supabase;
     async function load() {
       const members = await client.from('organization_members').select('organization_id').eq('user_id', userId).in('role', ['owner', 'admin']);
-      if (members.error) { if (active) setError('No se pudo verificar el permiso para crear eventos. Recargá la página.'); return; }
+      if (members.error) { if (active) setError('No se pudo verificar el permiso para crear eventos. Recargue la página.'); return; }
       const ids = (members.data || []).map(member => member.organization_id);
       if (!ids.length) return;
       const result = await client.from('organizations').select('id,name').in('id', ids).order('name');
       if (!active) return;
-      if (result.error) setError('No se pudieron cargar tus organizaciones. Recargá la página.');
+      if (result.error) setError('No se pudieron cargar sus organizaciones. Recargue la página.');
       else setOrganizations(result.data || []);
     }
     load().catch(() => { if (active) setError('No se pudo verificar el permiso para crear eventos.'); });
@@ -40,7 +40,7 @@ export function CreateEvent({ userId, onCreated }: { userId: string; onCreated: 
     const end = endValue ? new Date(`${endValue}:00-06:00`) : null;
     if (name.length < 2 || name.length > 180) { setError('El nombre debe tener entre 2 y 180 caracteres.'); return; }
     if (!Number.isFinite(start.getTime()) || (end && (!Number.isFinite(end.getTime()) || end <= start))) {
-      setError('Revisá las fechas: el cierre debe ser posterior al inicio.'); return;
+      setError('Revise las fechas: el cierre debe ser posterior al inicio.'); return;
     }
     setBusy(true); setError(''); setSuccess(false);
     try {
@@ -52,19 +52,19 @@ export function CreateEvent({ userId, onCreated }: { userId: string; onCreated: 
         p_ends_at: end?.toISOString() || null,
       });
       if (rpcError) {
-        setError(rpcError.code === '42501' ? 'Tu cuenta no tiene permiso para crear eventos en esta organización.' : 'No se pudo crear el evento. Revisá la conexión y los datos antes de volver a intentar.');
+        setError(rpcError.code === '42501' ? 'Su cuenta no tiene permiso para crear eventos en esta organización.' : 'No se pudo crear el evento. Revise la conexión y los datos antes de volver a intentar.');
         return;
       }
       setOpen(false); setSuccess(true); onCreated();
-    } catch { setError('No se pudo confirmar la creación. Recargá la lista antes de intentar nuevamente para evitar duplicados.'); }
+    } catch { setError('No se pudo confirmar la creación. Recargue la lista antes de intentar nuevamente para evitar duplicados.'); }
     finally { setBusy(false); }
   }
 
   return <section className="create-event" aria-label="Administración de eventos">
     {success && <p role="status" className="created-message">Evento creado como borrador. Actualizamos la lista de eventos.</p>}
     {!open && error && <p className="notice" role="alert">{error}</p>}
-    {organizations.length > 0 && !open && <button className="primary create-button" onClick={() => { setOpen(true); setError(''); setSuccess(false); }}><Plus size={17}/> Crear evento</button>}
-    {open && <div className="event-form-panel"><div className="form-heading"><h2>Nuevo evento</h2><button className="quiet" aria-label="Cerrar formulario" disabled={busy} onClick={() => setOpen(false)}><X size={18}/></button></div>
+    {organizations.length > 0 && !open && <button className="btn primary create-button" onClick={() => { setOpen(true); setError(''); setSuccess(false); }}><Plus size={17}/> Crear evento</button>}
+    {open && <div className="event-form-panel"><div className="form-heading"><h2>Nuevo evento</h2><button className="btn quiet" aria-label="Cerrar formulario" disabled={busy} onClick={() => setOpen(false)}><X size={18}/></button></div>
       <p>Las fechas se ingresan en hora de Costa Rica (UTC−6).</p>
       {error && <p className="notice" role="alert">{error}</p>}
       <form onSubmit={create}>
@@ -73,7 +73,7 @@ export function CreateEvent({ userId, onCreated }: { userId: string; onCreated: 
           <label>Nombre del evento<input name="name" minLength={2} maxLength={180} required placeholder="Nombre del próximo evento"/></label>
           <label>Lugar (opcional)<input name="venue" maxLength={300} placeholder="Los Santos, Costa Rica"/></label>
           <div className="form-dates"><label>Inicio<input name="start" type="datetime-local" required/></label><label>Cierre (opcional)<input name="end" type="datetime-local"/></label></div>
-          <button className="primary create-button" type="submit">{busy ? 'Creando…' : 'Crear borrador'}</button>
+          <button className="btn primary create-button" type="submit">{busy ? 'Creando…' : 'Crear borrador'}</button>
         </fieldset>
       </form>
     </div>}
