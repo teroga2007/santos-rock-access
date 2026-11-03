@@ -103,7 +103,15 @@ export function TicketImport({ eventId, types, disabled, onProtectedChange, onCh
 
   return <details className="type-setup import-panel"><summary>Importar compradores desde CSV</summary><p>Una fila = una entrada. Hasta 100 personas por lote, con el mismo tipo y origen. No importa códigos de LaTiqueteraCR.</p>
     {error && <p className="notice" role="alert">{error}</p>}{progress && <p role="status">{progress}</p>}
-    {result ? <div className="issued-ticket"><h3>{result.count} entradas importadas</h3><p className="ticket-id">Lote: {result.args.p_batch_id}</p><a className="primary download-qr" href={result.url} download={`santos-rock-${result.args.p_batch_id}.zip`}>Descargar todos los QR (ZIP)</a><p>El ZIP contiene un PNG por persona y personas.csv para relacionar nombres, correos y archivos. No se envían correos automáticamente.</p><label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el ZIP</label><button className="quiet" disabled={!saved} onClick={clear}>Preparar otro lote</button></div>
+    {result ? <div className="issued-ticket">
+      <h3>{result.count} entradas importadas</h3><p className="ticket-id">Lote: {result.args.p_batch_id}</p>
+      <a className="primary download-qr" href={result.url} download={`santos-rock-${result.args.p_batch_id}.zip`}>Descargar todos los QR (ZIP)</a>
+      <p>El ZIP contiene un PNG por persona y personas.csv para relacionar nombres, correos y archivos.</p>
+      <SendTicketEmail items={result.tickets.filter(ticket => result.args.p_rows[ticket.row - 1]?.email).map(ticket => ({ ticket_id: ticket.ticket_id, token: result.args.p_rows[ticket.row - 1].token }))}/>
+      <p>Solo se incluyen en el correo las personas con dirección válida. Guardá el ZIP para la entrega manual de las demás.</p>
+      <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el ZIP</label>
+      <button className="quiet" disabled={!saved} onClick={clear}>Preparar otro lote</button>
+    </div>
     : pending ? <div className="notice"><p>El lote está pendiente de confirmación. No cierres esta pantalla.</p><button className="quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma importación'}</button></div>
     : <><a className="quiet template-link" download="plantilla-santos-rock.csv" href={'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFFnombre,correo,referencia\r\nPersona de ejemplo,persona@example.com,REF-EJEMPLO\r\n')}>Descargar plantilla CSV</a><fieldset disabled={disabled || busy}>
       <label>Tipo de entrada<select value={typeId || types[0]?.id || ''} onChange={e => setTypeId(e.target.value)}><option value="" disabled>Creá un tipo de entrada primero</option>{types.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>

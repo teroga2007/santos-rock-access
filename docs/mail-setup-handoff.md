@@ -2,6 +2,8 @@
 
 ## Estado confirmado por el usuario
 
+Actualización: la infraestructura fue configurada posteriormente y se auditó en producción. Consultar [auditoría actual](mail-production-audit.md); las secciones históricas siguientes describen el punto de partida anterior a esa configuración.
+
 - Dominio principal: `santosrock.com`, registrado en GoDaddy.
 - Buzones actuales: Microsoft, sobre el dominio principal.
 - Aplicación prevista: `https://access.santosrock.com`, alojada en Netlify.

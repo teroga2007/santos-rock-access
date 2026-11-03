@@ -62,7 +62,17 @@ export function TicketActions({ ticket, action, onClose, onChanged, onPendingCha
 
   return <section className="ticket-action-panel" aria-label="Acción sobre la entrada"><h3 tabIndex={-1} ref={heading}>{action === 'void' ? 'Anular entrada' : 'Reemitir QR'}</h3><p>{ticket.full_name} · {ticket.type_name}</p><p className="ticket-id">{ticket.id}</p>
     {error && <div className="notice" role="alert">{error}</div>}
-    {success ? <div role="status"><p className="created-message">{action === 'void' ? 'Entrada anulada. Sus códigos ya no permiten ingresar.' : 'QR reemitido. Los códigos anteriores quedaron invalidados.'}</p>{qr && <><img src={qr} width={300} height={300} alt="Nuevo QR de la misma entrada"/><a className="primary download-qr" download={`santos-rock-${ticket.id}-nuevo.png`} href={qr}>Descargar nuevo QR</a><p>Guardá y entregá este QR; no se envía por correo.</p><label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el nuevo QR</label></>}<button className="quiet" disabled={protectedState} onClick={onClose}>Terminar</button></div>
+    {success ? <div role="status">
+      <p className="created-message">{action === 'void' ? 'Entrada anulada. Sus códigos ya no permiten ingresar.' : 'QR reemitido. Los códigos anteriores quedaron invalidados.'}</p>
+      {qr && <>
+        <img src={qr} width={300} height={300} alt="Nuevo QR de la misma entrada"/>
+        <a className="primary download-qr" download={`santos-rock-${ticket.id}-nuevo.png`} href={qr}>Descargar nuevo QR</a>
+        <p>Guardá este QR. El envío por correo usa la dirección registrada del titular.</p>
+        {token && <SendTicketEmail items={[{ ticket_id: ticket.id, token }]}/>}
+        <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el nuevo QR</label>
+      </>}
+      <button className="quiet" disabled={protectedState} onClick={onClose}>Terminar</button>
+    </div>
     : pending ? <div className="notice"><p>La operación está pendiente de confirmación. No cierres la pantalla.</p><button className="quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma solicitud'}</button></div>
     : <form onSubmit={submit}><fieldset disabled={busy}><p>{action === 'void' ? 'La entrada dejará de ser válida y liberará su cupo. Esta acción no devuelve pagos ni permite restaurarla desde la aplicación.' : 'Se conserva la misma entrada, titular y cupo. Todos sus QR anteriores dejarán de funcionar.'}</p><label>Motivo<input name="reason" required minLength={5} maxLength={300} placeholder="Ej.: QR perdido por el titular"/></label><label className="saved-check"><input type="checkbox" required/> Confirmo la operación sobre esta entrada sin usar</label><button className="primary">{busy ? 'Guardando…' : action === 'void' ? 'Confirmar anulación' : 'Invalidar QR anterior y generar nuevo'}</button><button type="button" className="quiet" disabled={busy} onClick={onClose}>Cancelar</button></fieldset></form>}
   </section>;
