@@ -1,8 +1,8 @@
-import { config, client, encryptToken, json } from '../../server/mail.mjs';
+import { config, client, encryptToken, json, mailLog } from '../../server/mail.mjs';
 
 export default async function handler(request) {
   let cfg;
-  try { cfg = config(); } catch { return json({ configured: false, error: 'Configurá el correo en Netlify antes de usar esta función.' }, 503); }
+  try { cfg = config(); } catch (error) { mailLog('error', 'configuration_error', { code: error.code, field: error.field }); return json({ configured: false, error: 'Configurá el correo en Netlify antes de usar esta función.' }, 503); }
   if (request.method === 'GET') return json({ configured: true, sending_enabled: cfg.sending, daily_limit: cfg.limit });
   if (request.method !== 'POST') return json({ error: 'Método no permitido.' }, 405);
   if (request.headers.get('origin') && request.headers.get('origin') !== cfg.origin) return json({ error: 'Origen no autorizado.' }, 403);

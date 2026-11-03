@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { encryptToken, decryptToken, encryptionKey, config, emailMessage } from '../server/mail.mjs';
+import { encryptToken, decryptToken, encryptionKey, config, emailMessage, mailLog } from '../server/mail.mjs';
 import queueHandler from '../netlify/functions/queue-ticket-emails.mjs';
 import worker from '../netlify/functions/send-ticket-emails.mjs';
 const key = encryptionKey('ab'.repeat(32));
@@ -21,6 +21,38 @@ test('configuration defaults to disabled sending and 80 reservations/day', () =>
   const cfg = config({ SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'dummy', MAIL_QUEUE_ENCRYPTION_KEY: 'ab'.repeat(32) });
   assert.equal(cfg.sending, false); assert.equal(cfg.limit, 80);
   assert.throws(() => config({}));
+});
+test('disabled scheduled worker succeeds without secrets and never calls external services', async () => {
+  const previousEnv = process.env; const previousFetch = global.fetch; const previousLog = console.info;
+  const logs = []; let calls = 0;
+  process.env = { MAIL_SENDING_ENABLED: 'false' };
+  global.fetch = async () => { calls++; throw new Error('External call blocked'); };
+  console.info = message => logs.push(JSON.parse(message));
+  try {
+    const response = await worker();
+    assert.equal(response.status, 200); assert.equal(calls, 0);
+    assert.equal(logs[0].event, 'worker_disabled');
+  } finally { process.env = previousEnv; global.fetch = previousFetch; console.info = previousLog; }
+});
+test('configuration diagnostics identify the variable, never its secret value', async () => {
+  const previousEnv = process.env; const previousLog = console.error; const previousFetch = global.fetch;
+  const logs = []; let calls = 0;
+  process.env = { MAIL_SENDING_ENABLED: 'true', SUPABASE_URL: 'https://mail-test.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'PRIVATE-TEST-VALUE', MAIL_QUEUE_ENCRYPTION_KEY: 'INVALID-PRIVATE-KEY' };
+  console.error = value => logs.push(JSON.parse(value));
+  global.fetch = async () => { calls++; throw new Error('No external calls expected'); };
+  try {
+    const response = await worker(); assert.equal(response.status, 503); assert.equal(calls, 0);
+    assert.equal(logs[0].field, 'MAIL_QUEUE_ENCRYPTION_KEY');
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+    mailLog('error', 'test', { code: 'network_error', message: 'PRIVATE-TEST-VALUE', token: 'PRIVATE-TEST-VALUE' });
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+  } finally { process.env = previousEnv; console.error = previousLog; global.fetch = previousFetch; }
+});
+test('invalid switch, malformed URL and invalid reply-to are diagnosed before claiming work', () => {
+  const base = { SUPABASE_URL: 'https://mail-test.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'dummy', MAIL_QUEUE_ENCRYPTION_KEY: 'ab'.repeat(32) };
+  for (const [field, value] of [['MAIL_SENDING_ENABLED','treu'], ['SUPABASE_URL','bad-url'], ['EMAIL_REPLY_TO','bad-email']]) {
+    assert.throws(() => config({ ...base, [field]: value }), error => error.field === field);
+  }
 });
 test('message has escaped HTML, a PNG attachment and no public credential URL', async () => {
   const message = await emailMessage({ id: randomUUID(), ticket_id: ticket, recipient: 'person@example.invalid', holder_name: '<script>bad</script>', event_name: 'Santos Rock', venue: 'Los Santos', starts_at: '2026-11-15T01:00:00Z', timezone: 'America/Costa_Rica', type_name: 'General', access_zone: 'general' }, token, { from: 'pases@entradas.example.invalid', fromName: 'Santos Rock' });

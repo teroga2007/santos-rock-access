@@ -1,8 +1,25 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
+function configurationError(field) {
+  return Object.assign(new Error('mail_configuration'), { code: 'mail_configuration', field });
+}
+export function sendingEnabled(env = process.env) {
+  const value = String(env.MAIL_SENDING_ENABLED || 'false').trim().toLowerCase();
+  if (!['true', 'false'].includes(value)) throw configurationError('MAIL_SENDING_ENABLED');
+  return value === 'true';
+}
+// Deliberately omit exception messages, payloads, addresses and credentials.
+export function mailLog(level, event, fields = {}) {
+  const safe = {};
+  for (const key of ['code', 'field', 'job_id', 'status', 'http_status', 'count']) {
+    if (fields[key] !== undefined) safe[key] = fields[key];
+  }
+  console[level](JSON.stringify({ component: 'ticket_mail', event, ...safe }));
+}
+
 export function encryptionKey(value) {
-  if (!/^[0-9a-f]{64}$/i.test(value || '')) throw new Error('mail_configuration');
+  if (!/^[0-9a-f]{64}$/i.test(value || '')) throw configurationError('MAIL_QUEUE_ENCRYPTION_KEY');
   return Buffer.from(value, 'hex');
 }
 export function encryptToken(token, ticketId, key) {
@@ -23,12 +40,17 @@ export function decryptToken(value, ticketId, key) {
 }
 export function config(env = process.env) {
   const limit = Number(env.EMAIL_DAILY_LIMIT || 80);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 250) throw new Error('mail_configuration');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 250) throw configurationError('EMAIL_DAILY_LIMIT');
   const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
-  if (!url || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('mail_configuration');
+  if (!url) throw configurationError('SUPABASE_URL');
+  try { if (!['https:', 'http:'].includes(new URL(url).protocol)) throw new Error(); }
+  catch { throw configurationError('SUPABASE_URL'); }
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) throw configurationError('SUPABASE_SERVICE_ROLE_KEY');
   const key = encryptionKey(env.MAIL_QUEUE_ENCRYPTION_KEY);
-  const sending = env.MAIL_SENDING_ENABLED === 'true';
-  if (sending && (!env.BREVO_API_KEY || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.EMAIL_FROM || ''))) throw new Error('mail_configuration');
+  const sending = sendingEnabled(env);
+  if (sending && !env.BREVO_API_KEY) throw configurationError('BREVO_API_KEY');
+  if (sending && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.EMAIL_FROM || '')) throw configurationError('EMAIL_FROM');
+  if (env.EMAIL_REPLY_TO && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.EMAIL_REPLY_TO)) throw configurationError('EMAIL_REPLY_TO');
   return { url, key, limit, sending, serviceKey: env.SUPABASE_SERVICE_ROLE_KEY, apiKey: env.BREVO_API_KEY,
     from: env.EMAIL_FROM, fromName: env.EMAIL_FROM_NAME || 'Santos Rock', replyTo: env.EMAIL_REPLY_TO, origin: env.APP_ORIGIN };
 }
