@@ -1,54 +1,52 @@
 # Santos Rock Access
 
-Frontend inicial: React + TypeScript + Vite + Supabase Auth. Incluye acceso por invitación, configuración de contraseña y dashboard de eventos protegido por sesión y RLS. Ver [configuración del frontend](docs/frontend.md).
+Aplicación de gestión de eventos, entradas, control de ingreso, finanzas y entrega de QR por correo. React y TypeScript en el frontend; Supabase para autenticación, permisos y base de datos; Netlify Functions y Brevo para correo.
 
-```bash
-npm install
-# Copiar .env.example a .env.local y completar las variables públicas
+## Estructura
+
+| Carpeta | Responsabilidad |
+| --- | --- |
+| frontend/ | Interfaz, componentes, estilos y recursos públicos. Los módulos funcionales están en src/features/. |
+| backend/ | Lógica de correo y handlers de servidor; variables privadas documentadas en .env.example. |
+| netlify/functions/ | Adaptadores del despliegue y programación del worker. Conservan las URLs existentes. |
+| supabase/migrations/ | Fuente de verdad del esquema, RPC y políticas de acceso. |
+| supabase/tests/ | Comprobaciones SQL de reglas y permisos. |
+| tests/ | Pruebas unitarias, backend, interfaz e integración concurrente. |
+| scripts/admin/ | Herramientas administrativas de ejecución manual. |
+| docs/ | Guías de configuración, funcionalidades, operación e informes. |
+| archive/database/ | ZIP históricos de base de datos; no se usan para compilar ni desplegar. |
+
+Los archivos de configuración compartidos permanecen en la raíz. No hay instalaciones npm independientes por carpeta.
+
+## Desarrollo
+
+Requisitos: Node.js compatible con las dependencias del proyecto y npm.
+
+```sh
+npm ci
+# Copiar .env.example a .env.local y completar las variables públicas de Supabase.
 npm run dev -- --port 5173 --strictPort
 ```
 
-## Database foundation
+Ejecutar los comandos desde la raíz. Vite sirve frontend/ y sigue leyendo .env.local desde la raíz. Las claves privadas del backend se configuran en Netlify, según backend/.env.example; nunca usar el prefijo VITE_ para secretos.
 
-## Scope of migration 001
+El servidor Vite ejecuta la interfaz. Para probar correo con funciones locales se necesita Netlify Dev y su configuración de servidor; las pruebas automatizadas de correo usan servicios simulados y no envían mensajes reales.
 
-Creates the initial PostgreSQL schema, indexes, role enums, membership predicates and read-only Row Level Security policies. **This is a foundation, not a deployable ticket-validation system.** Ticket issuance, credential generation, check-in, audit writes, organization onboarding, tenant consistency constraints, and controlled mutations will be added in subsequent migrations before production use.
+## Verificación
 
-## Requirements
-
-- Supabase project (new, dedicated project recommended)
-- Supabase CLI
-- Local Docker for `supabase start` (optional, recommended)
-
-## Setup
-
-```bash
-npx supabase init
-# Copy the migration into supabase/migrations/
-npx supabase start
-npx supabase db reset
+```sh
+npm run build
+npm run test:csv
+npm run test:mail
+npm run test:ui -- --workers=2
 ```
 
-For remote deployment, first link the project and inspect migration status:
+Las pruebas de interfaz requieren Chrome instalado o un navegador de Playwright. PLAYWRIGHT_EXECUTABLE_PATH permite indicar otro ejecutable. Consultar [pruebas concurrentes](docs/operations/concurrency-testing.md) antes de ejecutar test:concurrency: utiliza una base de datos y crea fixtures temporales.
 
-```bash
-npx supabase login
-npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push
-```
+## Despliegue y base de datos
 
-Never put the service role key in the browser or Git. Store server-side credentials in your provider's secret manager.
+Netlify conserva npm run build como comando y dist/ como directorio de publicación. Los adaptadores de funciones están en netlify/functions/; el worker mantiene su programación cada 15 minutos. Reorganizar archivos no requiere cambiar variables de entorno ni aplicar migraciones.
 
-## Important design constraints
+Las migraciones SQL se mantienen en supabase/migrations/. Revisar su estado con Supabase CLI antes de aplicar cambios pendientes; no reinicializar una base existente para configurar el frontend. La autorización se valida mediante RLS y RPC; los roles de interfaz no sustituyen esos controles.
 
-- Users are authenticated by Supabase Auth; permissions are derived from database memberships.
-- `app_private` predicates use `SECURITY DEFINER` and an empty `search_path`. Do not expose this schema through PostgREST.
-- No client write privileges are granted yet; mutations must be exposed through purpose-built, authorized functions.
-- Scanner users cannot read the full tickets, orders or personal data tables.
-- One accepted check-in per ticket is enforced by a partial unique index.
-- Ticket credentials store digests, not raw QR tokens.
-- Third-party QR support depends on an approved LaTiqueteraCR integration.
-
-## Before going live
-
-Add: event/organization consistency triggers (including holder membership), safe provisioning and role changes, issuance/redeem RPCs, immutable audit logging, rate limits, privacy/retention policies, integration tests with multiple simultaneous scanners, email delivery and contingency procedures.
+Ver el [índice de documentación](docs/README.md) para configuración, flujos y operación.

@@ -26,3 +26,7 @@ Thumbs.db
 # Browser checks
 test-results/
 playwright-report/
+
+# Local function packaging output
+netlify/functions/*.zip
+netlify/functions/manifest.json
