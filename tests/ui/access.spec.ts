@@ -18,6 +18,7 @@ async function fixture(page: Page, role: string, options: { failPermissions?: bo
     const url = new URL(route.request().url());
     const path = url.pathname;
     const respond = (data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
+    if (path.endsWith('/profiles')) return respond(url.searchParams.get('user_id') ? { display_name: 'equipo' } : [{ user_id: userId, display_name: 'equipo' }]);
     if (path.endsWith('/events')) return respond(url.searchParams.get('id') ? deleted ? null : event : deleted ? [] : [event]);
     if (path.endsWith('/rpc/sell_door_ticket')) {
       doorCalls++; writes.push('door');
@@ -635,3 +636,23 @@ test('mail-ux provider acceptance is not presented as confirmed delivery', async
   await expect(page.locator('.email-send')).toContainText('Aceptado por Brevo');
   await expect(page.locator('.email-send')).toContainText('La entrega en la bandeja aún no está confirmada.');
 });
+
+for (const role of ['owner', 'supervisor', 'scanner']) {
+  test('session identity persists across screens for ' + role, async ({ page }) => {
+    await fixture(page, role);
+    await page.goto('/');
+    const header = page.getByRole('banner');
+    await expect(header.getByLabel('Sesión de equipo')).toBeVisible();
+    await expect(header.locator('.session-avatar')).toHaveText('E');
+    await expect(page.locator('main .session')).toHaveCount(0);
+    await page.getByRole('link', { name: 'Abrir evento' }).click();
+    await expect(header.getByLabel('Sesión de equipo')).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(header.getByRole('button', { name: 'Salir' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    if (role === 'owner') {
+      await page.getByRole('button', { name: 'Equipo', exact: true }).click();
+      await expect(page.locator('.team-list .member-id')).toContainText('equipo');
+    }
+  });
+}

@@ -11,6 +11,8 @@ export function EventTeam({ eventId, organizationId, userId, expanded = false, o
   const [open, setOpen] = useState(expanded);
   const [members, setMembers] = useState<Member[]>([]);
   const [assignments, setAssignments] = useState<Member[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [namesError, setNamesError] = useState(false);
   const [selected, setSelected] = useState('');
   const [role, setRole] = useState<Role>('scanner');
   const [loading, setLoading] = useState(false);
@@ -54,14 +56,17 @@ export function EventTeam({ eventId, organizationId, userId, expanded = false, o
     if (!open || !allowed || !supabase) return;
     const client = supabase;
     let active = true;
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setNames({}); setNamesError(false);
     Promise.all([
       client.from('organization_members').select('user_id,role').eq('organization_id', organizationId).order('created_at'),
       client.from('event_members').select('user_id,role').eq('event_id', eventId),
-    ]).then(([org, event]) => {
+      client.from('profiles').select('user_id,display_name'),
+    ]).then(([org, event, profiles]) => {
       if (!active) return;
       if (org.error || event.error) { setError('No se pudo cargar el equipo. Cierre y abra este panel para reintentar.'); setMembers([]); setAssignments([]); }
       else { setMembers(org.data || []); setAssignments(event.data || []); }
+      setNames(Object.fromEntries((profiles.data || []).map(p => [p.user_id, p.display_name])));
+      setNamesError(!!profiles.error);
       setLoading(false);
     }).catch(() => { if (active) { setError('No se pudo conectar para cargar el equipo.'); setLoading(false); } });
     return () => { active = false; };
@@ -93,12 +98,13 @@ export function EventTeam({ eventId, organizationId, userId, expanded = false, o
       {error && <div role="alert" className="notice">{error}</div>}
       {message && <p role="status" className="created-message">{message}</p>}
       {loading ? <p role="status">Cargando equipo…</p> : <>
+        {namesError && <p role="status">No se pudieron cargar los nombres del equipo. Se muestran los identificadores disponibles.</p>}
         <ul className="team-list">{members.map(member => {
           const assigned = assignments.find(m => m.user_id === member.user_id);
-          return <li key={member.user_id}><span className="member-id">{member.user_id === userId ? 'Usted' : 'Miembro'}<small>{member.user_id}</small></span><span>{assigned ? roles[assigned.role as Role] : 'Sin asignación'}<small>{member.role === 'owner' ? 'Propietario de organización' : member.role === 'admin' ? 'Administrador de organización' : 'Miembro de organización'}</small></span></li>;
+          return <li key={member.user_id}><span className="member-id">{names[member.user_id] || 'Usuario sin nombre'}<small>{member.user_id === userId ? 'Usted' : member.user_id}</small></span><span>{assigned ? roles[assigned.role as Role] : 'Sin asignación'}<small>{member.role === 'owner' ? 'Propietario de organización' : member.role === 'admin' ? 'Administrador de organización' : 'Miembro de organización'}</small></span></li>;
         })}</ul>
         {!members.length ? <p>No hay miembros disponibles.</p> : <form onSubmit={save}><fieldset disabled={busy || !!error}>
-          <label>Persona<select value={selected} onChange={e => choose(e.target.value)} required><option value="">Seleccione un miembro</option>{members.map(member => <option value={member.user_id} key={member.user_id}>{member.user_id === userId ? 'Usted — ' : ''}{member.user_id}</option>)}</select></label>
+          <label>Persona<select value={selected} onChange={e => choose(e.target.value)} required><option value="">Seleccione un miembro</option>{members.map(member => <option value={member.user_id} key={member.user_id}>{names[member.user_id] || member.user_id}{member.user_id === userId ? ' (usted)' : ''}</option>)}</select></label>
           <label>Rol en este evento<select value={role} onChange={e => setRole(e.target.value as Role)}>{Object.entries(roles).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
           <button className="btn primary" disabled={!selected || busy}>{busy ? 'Guardando…' : 'Guardar rol'}</button>
         </fieldset></form>}

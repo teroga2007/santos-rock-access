@@ -24,6 +24,8 @@ El [README principal](../README.md) describe la estructura y los comandos actual
 
 ## Operación
 
+- [Checklist de pruebas con el equipo](operations/test-event-checklist.md)
+
 - [concurrency-testing](operations/concurrency-testing.md)
 - [mail-production-audit](operations/mail-production-audit.md)
 

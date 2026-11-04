@@ -22,6 +22,7 @@ function App() {
   const [passwordSetup, setPasswordSetup] = useState(needsPassword);
   const [events, setEvents] = useState<Event[]>([]);
   const [role, setRole] = useState('');
+  const [profile, setProfile] = useState<{ userId: string; name: string } | null>(null);
   const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -76,6 +77,17 @@ function App() {
     return () => { active = false; };
   }, [session?.user.id, revision]);
 
+  useEffect(() => {
+    if (!session || !supabase) return;
+    let active = true;
+    supabase.from('profiles').select('display_name').eq('user_id', session.user.id).maybeSingle().then(({ data }) => {
+      if (active) setProfile({ userId: session.user.id, name: data?.display_name?.trim() || '' });
+    });
+    return () => { active = false; };
+  }, [session?.user.id]);
+
+  const username = (profile?.userId === session?.user.id ? profile?.name : '') || session?.user.email?.split('@')[0] || 'Usuario';
+
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); if (!supabase) return;
     const data = new FormData(e.currentTarget);
@@ -108,12 +120,11 @@ function App() {
     `${event.name} ${event.venue || ''}`.toLocaleLowerCase('es').includes(search.trim().toLocaleLowerCase('es'))
   ).sort((a, b) => (new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()) * (sort === 'asc' ? 1 : -1));
   return <div className="app"><a className="skip-link" href="#main-content">Ir al contenido</a>
-    <header>{brand}{session && <button className="btn quiet" disabled={busy} onClick={logout}><LogOut size={16}/> Salir</button>}</header>
+    <header>{brand}{session && <div className="header-account"><div className="session-identity" aria-label={`Sesión de ${username}`} title={session.user.email}><span className="session-avatar" aria-hidden="true">{Array.from(username)[0]?.toLocaleUpperCase('es')}</span><span className="session-username">{username}</span></div><button className="btn quiet" disabled={busy} onClick={logout}><LogOut size={16}/> Salir</button></div>}</header>
     {loading ? <main id="main-content" tabIndex={-1} className="loading" role="status">Cargando…</main> : session && !passwordSetup ? <main id="main-content" tabIndex={-1} className="dashboard">
       {detailId ? <Suspense fallback={<p role="status">Cargando evento…</p>}><EventDetails eventId={detailId} userId={session.user.id}/></Suspense> : <>
 
       <div className="dashboard-heading"><div><h1>Eventos</h1></div><span className="role"><ShieldCheck size={16}/>{role}</span></div>
-      <div className="session"><span>Sesión de <strong>{session.user.email}</strong></span></div>
       <CreateEvent key={session.user.id} userId={session.user.id} onCreated={() => setRevision(value => value + 1)}/>
       {message && <p className="notice" role="alert">{message}</p>}
       <div className="event-filters"><label>Buscar evento<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Nombre o lugar"/></label><label>Estado<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="">Todos los estados</option>{Object.entries(statusNames).map(([value, name]) => <option value={value} key={value}>{name}</option>)}</select></label><label>Orden<select value={sort} onChange={e => setSort(e.target.value)}><option value="asc">Fecha ascendente</option><option value="desc">Fecha descendente</option></select></label></div>
