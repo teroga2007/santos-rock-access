@@ -1,5 +1,7 @@
 # Venta en puerta
 
+Estado actual: [compras por cantidad y CSV actualizado](ticket-purchases.md). Esta guía conserva el historial anterior; donde menciona referencias obligatorias o una entrada por fila, consultar el flujo actual.
+
 Acceso desde **Evento → Venta en puerta**, con un acceso directo en el resumen. Se conservan los permisos de emisión: propietario, administrador de organización o administrador asignado al evento. Supervisores y personal de escaneo no reciben nuevos permisos de venta.
 
 ## Recorrido

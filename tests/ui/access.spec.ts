@@ -8,24 +8,33 @@ const event = { id: eventId, organization_id: organizationId, name: 'Encuentro S
 
 async function fixture(page: Page, role: string, options: { failPermissions?: boolean; uncertainIssue?: boolean; priced?: boolean; financeError?: boolean; emptyFinance?: boolean; deleteError?: boolean; door?: boolean; uncertainDoor?: boolean; staleDoor?: boolean; typeInUse?: boolean; manyTickets?: boolean; mailEnabled?: boolean; mailUnavailable?: boolean; mailFailureOnce?: boolean; mailStatus?: string; mailGate?: Promise<void> } = {}) {
   const writes: string[] = [];
-  let redeemed = false;
+  const redeemed = new Set<string>();
   let deleted = false;
   let doorCalls = 0;
   let doorPrice = 16000;
   let typeDeleted = false;
   let mailPosts = 0;
+  const ticketRecipients = new Map<string, string>();
   await page.route('https://**.supabase.co/**', async route => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const respond = (data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
     if (path.endsWith('/profiles')) return respond(url.searchParams.get('user_id') ? { display_name: 'equipo' } : [{ user_id: userId, display_name: 'equipo' }]);
     if (path.endsWith('/events')) return respond(url.searchParams.get('id') ? deleted ? null : event : deleted ? [] : [event]);
-    if (path.endsWith('/rpc/sell_door_ticket')) {
-      doorCalls++; writes.push('door');
-      if (options.uncertainDoor && doorCalls === 1) return respond({ code: '08006' }, 503);
-      if (options.staleDoor && doorCalls === 1) { doorPrice = 17000; return respond({ code: 'P0001' }, 400); }
-      const body = route.request().postDataJSON(); const total = body.p_expected_price_crc;
-      return respond({ ticket_id: ticketId, order_id: '55555555-5555-4555-8555-555555555555', total_crc: total, cash_change_crc: body.p_payment_method === 'cash' ? body.p_cash_received_crc - total : null });
+    if (path.endsWith('/rpc/issue_ticket_purchases')) {
+      const body = route.request().postDataJSON();
+      if (body.p_source === 'door') {
+        doorCalls++; writes.push('door');
+        if (options.uncertainDoor && doorCalls === 1) return respond({ code: '08006' }, 503);
+        if (options.staleDoor && doorCalls === 1) { doorPrice = 17000; return respond({ code: 'P0001' }, 400); }
+      } else if (!body.p_import) {
+        writes.push('issue');
+        if (options.uncertainIssue) return respond({ code: '08006' }, 503);
+      }
+      const tickets = body.p_rows.flatMap((row: { quantity: number }, buyer: number) => Array.from({ length: row.quantity }, (_, index) => ({ row: 0, buyer_row: buyer + 1, quantity_index: index + 1, ticket_id: '44444444-4444-4444-8444-' + String(buyer * 100 + index + 1).padStart(12, '0') })));
+      tickets.forEach((ticket: { row: number; buyer_row: number; ticket_id: string }, index: number) => { ticket.row = index + 1; ticketRecipients.set(ticket.ticket_id, body.p_rows[ticket.buyer_row - 1].email); });
+      const total = (Number(body.p_expected_price_crc || 0) + Number(body.p_expected_transport_crc || 0)) * tickets.length;
+      return respond({ tickets, quantity: tickets.length, total_crc: total, cash_change_crc: body.p_payment_method === 'cash' ? body.p_cash_received_crc - total : null });
     }
     if (path.endsWith('/rpc/delete_test_event')) {
       if (options.deleteError) return respond({ code: '55000' }, 409);
@@ -74,20 +83,19 @@ async function fixture(page: Page, role: string, options: { failPermissions?: bo
       rows.sort((a, b) => String(a[q.p_sort_by as keyof typeof a]).localeCompare(String(b[q.p_sort_by as keyof typeof b])) * (q.p_ascending ? 1 : -1));
       return respond(rows.slice(q.p_offset, q.p_offset + q.p_limit));
     }
-    if (path.endsWith('/rpc/list_event_ticket_emails_sorted')) {
+    if (path.endsWith('/rpc/list_event_email_deliveries')) {
       const q = route.request().postDataJSON();
       const rows = options.manyTickets ? Array.from({ length: 25 }, (_, i) => ({ id: String(i), ticket_id: ticketId, recipient: 'persona' + String(i + 1).padStart(2, '0') + '@example.com', status: 'pending', attempts: i + 1, created_at: new Date(Date.UTC(2026, 10, 3, 18, i)).toISOString(), last_error: null })) : [];
       rows.sort((a, b) => (q.p_sort_by === 'attempts' ? a.attempts - b.attempts : String(a[q.p_sort_by as keyof typeof a]).localeCompare(String(b[q.p_sort_by as keyof typeof b]))) * (q.p_ascending ? 1 : -1));
       return respond(rows.slice(q.p_offset, q.p_offset + q.p_limit));
     }
-    if (path.endsWith('/rpc/import_priced_native_tickets')) return respond([{ row: 1, ticket_id: ticketId }, { row: 2, ticket_id: '66666666-6666-4666-8666-666666666666' }]);
     if (path.endsWith('/rpc/list_event_tickets_sorted')) return respond([{ id: ticketId, full_name: 'Persona invitada', type_name: 'General', source: 'complimentary', status: 'issued', issued_at: '2026-11-03T18:00:00Z' }]);
     if (path.endsWith('/rpc/issue_priced_ticket')) {
       writes.push('issue');
       return options.uncertainIssue ? respond({ code: '08006' }, 503) : respond(ticketId);
     }
     if (path.endsWith('/rpc/redeem_ticket')) {
-      writes.push('redeem'); const result = redeemed ? 'duplicate' : 'accepted'; redeemed = true;
+      writes.push('redeem'); const result = redeemed.has(route.request().postDataJSON().p_token) ? 'duplicate' : 'accepted'; redeemed.add(route.request().postDataJSON().p_token);
       return respond({ result, type_name: 'General', access_zone: 'general' });
     }
     if (path.endsWith('/auth/v1/user')) return respond({ id: userId, email: 'equipo@example.com', aud: 'authenticated' });
@@ -100,7 +108,7 @@ async function fixture(page: Page, role: string, options: { failPermissions?: bo
     if (options.mailGate) await options.mailGate;
     if (options.mailFailureOnce && mailPosts === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'uncertain' }) });
     const body = route.request().postDataJSON();
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: body.items.map((item: { ticket_id: string }, i: number) => ({ id: 'job-' + i, ticket_id: item.ticket_id, status: options.mailStatus || 'pending' })), sending_enabled: !!options.mailEnabled, daily_limit: 80 }) });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: body.items.map((item: { ticket_id: string }, i: number) => ({ id: 'job-' + i, ticket_id: item.ticket_id, delivery_id: 'delivery-' + (ticketRecipients.get(item.ticket_id) || item.ticket_id), status: options.mailStatus || 'pending' })), sending_enabled: !!options.mailEnabled, daily_limit: 80 }) });
   });
   await page.addInitScript(({ userId }) => {
     const expires = Math.floor(Date.now() / 1000) + 3600;
@@ -247,7 +255,7 @@ test('bundle shows separate amounts and requires confirmed payment', async ({ pa
   await page.getByLabel('Nombre del titular').fill('Compra con transporte');
   await page.getByRole('button', { name: 'Emitir entrada y generar QR' }).click();
   expect(writes).toEqual([]);
-  await page.getByLabel('Referencia de pago').fill('SINPE-UI-1');
+  await expect(page.getByLabel('Referencia de pago')).toHaveCount(0);
   await page.getByLabel('Verifiqué el pago antes de emitir esta entrada').check();
   await page.getByRole('button', { name: 'Emitir entrada y generar QR' }).click();
   await expect(page.getByRole('heading', { name: 'Entrada emitida', exact: true })).toBeVisible();
@@ -383,7 +391,7 @@ test('door cash sale offers no transport, calculates change and protects the QR'
   await page.getByLabel('Efectivo recibido (CRC)').fill('20000');
   await expect(page.locator('.door-change')).toContainText(new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC' }).format(4000));
   await page.getByLabel('Verifiqué y recibí el pago').check();
-  const request = page.waitForRequest(r => r.url().endsWith('/rpc/sell_door_ticket'));
+  const request = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
   await page.getByRole('button', { name: /^Registrar venta/ }).click();
   const body = (await request).postDataJSON();
   expect(body).toMatchObject({ p_type_id: 'door', p_payment_method: 'cash', p_cash_received_crc: 20000, p_expected_price_crc: 16000 });
@@ -398,20 +406,17 @@ test('door cash sale offers no transport, calculates change and protects the QR'
   await expect(page.getByLabel('Verifiqué y recibí el pago')).not.toBeChecked();
 });
 
-test('door SINPE requires a reference and excludes free types', async ({ page }) => {
+test('door SINPE requires payment confirmation without a reference and excludes free types', async ({ page }) => {
   await fixture(page, 'owner', { door: true }); await openDoor(page);
   await expect(page.getByRole('option', { name: /^Staff/ })).toHaveCount(0);
   await page.getByRole('combobox', { name: 'Medio de pago', exact: true }).selectOption('sinpe');
   await expect(page.getByLabel('Efectivo recibido (CRC)')).toHaveCount(0);
   await page.getByLabel('Nombre del titular').fill('Compra SINPE');
   await page.getByLabel('Verifiqué y recibí el pago').check();
+  await expect(page.getByLabel('Referencia de pago')).toHaveCount(0);
+  const request = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
   await page.getByRole('button', { name: /^Registrar venta/ }).click();
-  await expect(page.getByLabel('Referencia de pago')).toBeVisible();
-  await page.getByLabel('Referencia de pago').fill('SINPE-DOOR-1');
-  await page.getByLabel('Verifiqué y recibí el pago').check();
-  const request = page.waitForRequest(r => r.url().endsWith('/rpc/sell_door_ticket'));
-  await page.getByRole('button', { name: /^Registrar venta/ }).click();
-  expect((await request).postDataJSON()).toMatchObject({ p_type_id: 'door', p_payment_method: 'sinpe', p_cash_received_crc: null, p_payment_reference: 'SINPE-DOOR-1' });
+  expect((await request).postDataJSON()).toMatchObject({ p_type_id: 'door', p_payment_method: 'sinpe', p_cash_received_crc: null });
   await expect(page.getByRole('heading', { name: 'Venta registrada' })).toBeVisible();
 });
 
@@ -420,12 +425,12 @@ test('uncertain door sale retries the same request without asking for payment ag
   await page.getByLabel('Nombre del titular').fill('Venta pendiente');
   await page.getByLabel('Efectivo recibido (CRC)').fill('20000');
   await page.getByLabel('Verifiqué y recibí el pago').check();
-  const first = page.waitForRequest(r => r.url().endsWith('/rpc/sell_door_ticket'));
+  const first = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
   await page.getByRole('button', { name: /^Registrar venta/ }).click();
   const original = (await first).postDataJSON();
   await expect(page.getByText('La venta está pendiente de confirmación.', { exact: false })).toBeVisible();
   await expect(page.getByRole('img', { name: 'QR de la entrada vendida en puerta' })).toHaveCount(0);
-  const retry = page.waitForRequest(r => r.url().endsWith('/rpc/sell_door_ticket'));
+  const retry = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
   await page.getByRole('button', { name: 'Reintentar la misma venta' }).click();
   expect((await retry).postDataJSON()).toEqual(original);
   await expect(page.getByRole('heading', { name: 'Venta registrada' })).toBeVisible();
@@ -525,14 +530,14 @@ test('CSV preview sorting preserves original row numbers and import order', asyn
   await fixture(page, 'owner'); await page.goto('/events/' + eventId);
   await page.getByRole('navigation', { name: 'Secciones del evento' }).getByRole('button', { name: 'Entradas', exact: true }).click();
   await page.getByRole('button', { name: 'Importar CSV', exact: true }).click();
-  await page.locator('.import-panel input[type="file"]').setInputFiles({ name: 'personas.csv', mimeType: 'text/csv', buffer: Buffer.from('nombre,correo,referencia\nZeta,,PAY-1\nAna,,PAY-2\n') });
+  await page.locator('.import-panel input[type="file"]').setInputFiles({ name: 'personas.csv', mimeType: 'text/csv', buffer: Buffer.from('nombre,correo,cantidad\nZeta,,1\nAna,,1\n') });
   const preview = page.locator('.import-preview table');
   await preview.getByRole('columnheader', { name: 'Nombre', exact: true }).getByRole('button').click();
   await expect(preview.locator('tbody tr').first()).toContainText('Ana');
   await expect(preview.locator('tbody tr').first().locator('td').first()).toHaveText('3');
-  await page.getByRole('checkbox', { name: /^Revisé las personas/ }).check();
-  const query = page.waitForRequest(r => r.url().endsWith('/rpc/import_priced_native_tickets'));
-  await page.getByRole('button', { name: 'Importar 2 personas y generar sus QR', exact: true }).click();
+  await page.getByRole('checkbox', { name: /^Revisé los compradores/ }).check();
+  const query = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
+  await page.getByRole('button', { name: 'Importar 2 entradas y generar sus QR', exact: true }).click();
   expect((await query).postDataJSON().p_rows.map((r: { name: string }) => r.name)).toEqual(['Zeta', 'Ana']);
 });
 
@@ -593,11 +598,11 @@ test('CSV opt-in queues only rows with email and shows destinations', async ({ p
   await fixture(page, 'owner'); await page.goto('/events/' + eventId);
   await page.getByRole('navigation', { name: 'Secciones del evento' }).getByRole('button', { name: 'Entradas', exact: true }).click();
   await page.getByRole('button', { name: 'Importar CSV', exact: true }).click();
-  await page.locator('.import-panel input[type="file"]').setInputFiles({ name: 'mail.csv', mimeType: 'text/csv', buffer: Buffer.from('nombre,correo,referencia\nCon correo,titular@example.com,PAY-1\nSin correo,,PAY-2\n') });
+  await page.locator('.import-panel input[type="file"]').setInputFiles({ name: 'mail.csv', mimeType: 'text/csv', buffer: Buffer.from('nombre,correo,cantidad\nCon correo,titular@example.com,1\nSin correo,,1\n') });
   await page.getByRole('checkbox', { name: 'Enviar por correo al importar', exact: true }).check();
-  await page.getByRole('checkbox', { name: /^Revisé las personas/ }).check();
+  await page.getByRole('checkbox', { name: /^Revisé los compradores/ }).check();
   const query = page.waitForRequest(r => r.method() === 'POST' && r.url().includes('queue-ticket-emails'));
-  await page.getByRole('button', { name: 'Importar 2 personas y generar sus QR', exact: true }).click();
+  await page.getByRole('button', { name: 'Importar 2 entradas y generar sus QR', exact: true }).click();
   expect((await query).postDataJSON().items).toHaveLength(1);
   await expect(page.locator('.email-send')).toContainText('titular@example.com');
   await expect(page.locator('.email-send')).toContainText('Pendiente');
@@ -656,3 +661,84 @@ for (const role of ['owner', 'supervisor', 'scanner']) {
     }
   });
 }
+
+test('email manual code admits once and the attached PNG is the same used entry', async ({ page }) => {
+  const { emailMessage } = await import('../../backend/mail.mjs');
+  const token = 'sra1_' + 'b'.repeat(43);
+  const message = await emailMessage({ id: 'test-email', ticket_id: ticketId, recipient: 'test@example.invalid', holder_name: 'Javier', event_name: event.name, venue: event.venue, starts_at: event.starts_at, timezone: event.timezone, type_name: 'General', access_zone: 'general' }, token, { from: 'test@example.invalid' });
+  const code = /Código de ingreso manual:\n(sra1_[A-Za-z0-9_-]{43})/.exec(message.textContent)?.[1];
+  expect(code).toBe(token);
+  const requests: string[] = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/rpc/redeem_ticket')) requests.push(request.postDataJSON().p_token);
+  });
+  await fixture(page, 'scanner');
+  await page.goto('/events/' + eventId);
+  await page.getByText('Cargar imagen o ingresar código', { exact: true }).click();
+  await page.getByLabel('Código de la entrada', { exact: true }).fill('  ' + code + '  ');
+  await page.getByRole('button', { name: 'Registrar ingreso', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ingreso autorizado' })).toBeVisible();
+  await page.getByRole('button', { name: 'Siguiente lectura' }).click();
+  await page.getByLabel('Imagen del QR', { exact: true }).setInputFiles({ name: message.attachment[0].name, mimeType: 'image/png', buffer: Buffer.from(message.attachment[0].content, 'base64') });
+  await expect(page.getByRole('heading', { name: 'Entrada ya utilizada' })).toBeVisible();
+  expect(requests).toEqual([token, token]);
+});
+
+test('purchase quantity creates independent QR files and queues them together for the buyer', async ({ page }) => {
+  await fixture(page, 'owner', { priced: true }); await openIssue(page);
+  await page.getByLabel('Cantidad de entradas', { exact: true }).fill('3');
+  await expect(page.getByLabel('Referencia de pago')).toHaveCount(0);
+  await page.getByLabel('Verifiqué el pago antes de emitir esta entrada').check();
+  await page.getByRole('checkbox', { name: 'Enviar por correo al emitir', exact: true }).check();
+  const purchase = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
+  const queued = page.waitForRequest(r => r.method() === 'POST' && r.url().includes('queue-ticket-emails'));
+  await page.getByRole('button', { name: 'Emitir 3 entradas y generar QR' }).click();
+  const body = (await purchase).postDataJSON();
+  expect(body.p_rows[0].quantity).toBe(3);
+  expect(new Set(body.p_rows[0].tokens).size).toBe(3);
+  expect(body).not.toHaveProperty('p_payment_reference');
+  expect((await queued).postDataJSON().items).toHaveLength(3);
+  await expect(page.locator('.email-send')).toContainText('1 correo registrado para 3 entradas.');
+  await expect(page.getByRole('heading', { name: '3 entradas emitidas', exact: true })).toBeVisible();
+  const link = page.getByRole('link', { name: 'Descargar todos los QR (ZIP)', exact: true });
+  const bytes = await page.evaluate(async href => Array.from(new Uint8Array(await (await fetch(href!)).arrayBuffer())), await link.getAttribute('href'));
+  const { unzipSync } = await import('fflate');
+  expect(Object.keys(unzipSync(Uint8Array.from(bytes))).filter(name => name.endsWith('.png'))).toHaveLength(3);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+test('CSV preview expands quantities, preserves buyer order and blocks an oversized total', async ({ page }) => {
+  await fixture(page, 'owner'); await page.goto('/events/' + eventId);
+  await page.getByRole('navigation', { name: 'Secciones del evento' }).getByRole('button', { name: 'Entradas', exact: true }).click();
+  await page.getByRole('button', { name: 'Importar CSV', exact: true }).click();
+  const file = page.locator('.import-panel input[type="file"]');
+  await file.setInputFiles({ name: 'buyers.csv', mimeType: 'text/csv', buffer: Buffer.from('nombre,correo,cantidad\nUno,buyer@example.com,60\nDos,buyer@example.com,41\n') });
+  await expect(page.locator('.import-panel [role="alert"]')).toContainText('100 entradas');
+  await file.setInputFiles({ name: 'buyers.csv', mimeType: 'text/csv', buffer: Buffer.from('nombre,correo,cantidad\nUno,buyer@example.com,2\nDos,buyer@example.com,1\n') });
+  await expect(page.locator('.import-panel')).toContainText('2 compradores · 3 entradas');
+  await page.getByRole('checkbox', { name: /^Revisé los compradores/ }).check();
+  const request = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
+  await page.getByRole('button', { name: 'Importar 3 entradas y generar sus QR', exact: true }).click();
+  expect((await request).postDataJSON().p_rows.map((row: { quantity: number }) => row.quantity)).toEqual([2, 1]);
+  await expect(page.getByRole('heading', { name: '3 entradas importadas', exact: true })).toBeVisible();
+});
+test('door quantity multiplies the total and calculates change for the complete purchase', async ({ page }) => {
+  await fixture(page, 'owner', { door: true }); await openDoor(page);
+  await page.getByLabel('Nombre del titular').fill('Compra de dos');
+  await page.getByLabel('Cantidad de entradas', { exact: true }).fill('2');
+  await page.getByLabel('Efectivo recibido (CRC)').fill('50000');
+  await page.getByLabel('Verifiqué y recibí el pago').check();
+  const request = page.waitForRequest(r => r.url().endsWith('/rpc/issue_ticket_purchases'));
+  await page.getByRole('button', { name: /^Registrar venta/ }).click();
+  expect((await request).postDataJSON().p_rows[0].quantity).toBe(2);
+  await expect(page.locator('.door-change')).toContainText(new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC' }).format(18000));
+  await expect(page.getByRole('link', { name: 'Descargar todos los QR (ZIP)' })).toBeVisible();
+});
+
+test('changing quantity requires a new payment confirmation', async ({ page }) => {
+  await fixture(page, 'owner', { priced: true }); await openIssue(page);
+  const confirmation = page.getByLabel('Verifiqué el pago antes de emitir esta entrada');
+  await confirmation.check();
+  await page.getByLabel('Cantidad de entradas', { exact: true }).fill('3');
+  await expect(confirmation).not.toBeChecked();
+});

@@ -305,3 +305,7 @@ th[aria-sort="ascending"] svg, th[aria-sort="descending"] svg { opacity: 1; }
   .session-username { max-width: 105px; font-size: 12px; }
   .session-avatar { width: 32px; height: 32px; }
 }
+
+.purchase-qrs { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; max-height: 520px; overflow: auto; width: 100%; }
+.purchase-qrs figure { margin: 0; text-align: center; }
+.purchase-qrs img { width: 100%; max-width: 200px; height: auto; }

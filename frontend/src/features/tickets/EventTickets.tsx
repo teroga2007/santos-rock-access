@@ -1,3 +1,4 @@
+import { preparePurchaseQr, type PurchaseQr } from './purchaseQr';
 import { EmailDeliveryChoice } from '../mail/EmailDeliveryChoice';
 import { SortHeader, type SortState } from '../../components/tableSort';
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -11,8 +12,8 @@ const TicketImport = lazy(() => import('./TicketImport').then(module => ({ defau
 
 type TicketType = PricedTicketType;
 type Ticket = { id: string; type_name: string; full_name: string; source: string; status: string; issued_at: string };
-type Issue = { p_event_id: string; p_type_id: string; p_request_id: string; p_token: string; p_full_name: string; p_source: string; p_email: string | null; p_payment_reference: string | null; p_expected_price_crc: number | null; p_expected_transport_crc: number };
-type Pending = { args: Issue; qr: string; sendEmail: boolean };
+type Issue = { p_event_id: string; p_type_id: string; p_request_id: string; p_token: string; p_full_name: string; p_source: string; p_email: string | null; p_payment_reference: string | null; p_expected_price_crc: number | null; p_expected_transport_crc: number; p_payment_confirmed: boolean };
+type Pending = { args: Issue; qr: string; entries: PurchaseQr[]; url: string | null; sendEmail: boolean };
 const sources: Record<string, string> = { complimentary: 'Cortesía / acreditación', sinpe: 'SINPE', door: 'Puerta', other: 'Otro', ticketera: 'La Tiquetera' };
 const statuses: Record<string, string> = { issued: 'Emitida', redeemed: 'Utilizada', void: 'Anulada' };
 function errorText(code: string) {
@@ -21,7 +22,7 @@ function errorText(code: string) {
   if (code === '23514') return 'El evento está cerrado, el tipo no corresponde al evento o su cupo está completo.';
   if (code === '23505') return 'Ese tipo de entrada o credencial ya existe.';
   if (code === 'P0001') return 'La tarifa cambió. Actualice las entradas y revise el pago antes de volver a emitir.';
-  if (code === '22023') return 'Revise los datos y la referencia del pago.';
+  if (code === '22023') return 'Revise los datos, la cantidad y la confirmación del pago.';
   return 'No se pudo confirmar la operación. Revise la conexión y vuelva a intentar.';
 }
 
@@ -37,6 +38,10 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
   const [page, setPage] = useState(0);
   const [tableSort, setTableSort] = useState<SortState>({ key: 'issued_at', direction: 'desc' });
   function sortTickets(key: string) { setTableSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' })); setPage(0); }
+  const [quantity, setQuantity] = useState(1);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
+  const qrUrl = useRef<string | null>(null);
+  useEffect(() => () => { if (qrUrl.current) URL.revokeObjectURL(qrUrl.current); }, []);
   const [source, setSource] = useState('complimentary');
   const [emailDraft, setEmailDraft] = useState('');
   const [sendEmail, setSendEmail] = useState(false);
@@ -45,9 +50,10 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
   const [pricesPending, setPricesPending] = useState(false);
   const selectedPrice = pricing(types.find(t => t.id === (selectedType || types[0]?.id)));
   const effectiveSource = (selectedPrice.paid && source === 'complimentary') || (selectedPrice.transport > 0 && source === 'door') ? 'sinpe' : source;
+  useEffect(() => { setPaymentConfirmed(false); }, [quantity, selectedType, effectiveSource, selectedPrice.admission, selectedPrice.transport]);
   const [pending, setPending] = useState<Pending | null>(null);
   const inFlight = useRef(false);
-  const [result, setResult] = useState<{ id: string; qr: string; name: string; token: string; email: string | null; sendEmail: boolean } | null>(null);
+  const [result, setResult] = useState<{ id: string; qr: string; name: string; token: string; email: string | null; sendEmail: boolean; entries: (PurchaseQr & { id: string })[]; url: string | null } | null>(null);
   const [saved, setSaved] = useState(false);
   const [view, setView] = useState('list');
   const [action, setAction] = useState<{ ticket: Ticket; action: 'void' | 'reissue' } | null>(null);
@@ -102,14 +108,15 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
     if (!supabase || inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(''); setMessage('');
     try {
-      const { data, error } = await supabase.rpc('issue_priced_ticket', request.args);
+      const { data, error } = await supabase.rpc('issue_ticket_purchases', { p_event_id: eventId, p_type_id: request.args.p_type_id, p_request_id: request.args.p_request_id, p_rows: [{ name: request.args.p_full_name, email: request.args.p_email, quantity: request.entries.length, tokens: request.entries.map(entry => entry.token) }], p_source: request.args.p_source, p_expected_price_crc: request.args.p_expected_price_crc, p_expected_transport_crc: request.args.p_expected_transport_crc, p_payment_confirmed: request.args.p_payment_confirmed, p_import: false });
       if (error) {
         setError(errorText(error.code));
-        if (['42501', '23514', '23505', '22023', 'P0001', 'PGRST202'].includes(error.code)) setPending(null);
+        if (['42501', '23514', '23505', '22023', 'P0001', 'PGRST202'].includes(error.code)) { setPending(null); if (request.url) URL.revokeObjectURL(request.url); qrUrl.current = null; }
+        if (error.code === 'P0001') { setPaymentConfirmed(false); setRevision(value => value + 1); }
         return;
       }
-      if (typeof data !== 'string') { setError('Respuesta inesperada. Reintente la misma solicitud para confirmar la emisión.'); return; }
-      setResult({ id: data, qr: request.qr, name: request.args.p_full_name, token: request.args.p_token, email: request.args.p_email, sendEmail: request.sendEmail }); setSaved(false); setPending(null);
+      if (!Array.isArray(data?.tickets) || data.tickets.length !== request.entries.length || data.tickets.some((ticket: { ticket_id?: string }) => typeof ticket.ticket_id !== 'string')) { setError('Respuesta inesperada. Reintente la misma solicitud para confirmar la emisión.'); return; }
+      setResult({ entries: request.entries.map((entry, i) => ({ ...entry, id: data.tickets[i].ticket_id })), url: request.url, id: data.tickets[0].ticket_id, qr: request.qr, name: request.args.p_full_name, token: request.args.p_token, email: request.args.p_email, sendEmail: request.sendEmail }); setSaved(false); setPending(null);
       setPage(0); setRevision(v => v + 1); onChanged?.();
     } catch { setError('No se pudo confirmar la emisión. Reintente esta misma solicitud; no se emitirá una segunda entrada.'); }
     finally { inFlight.current = false; setBusy(false); }
@@ -120,11 +127,10 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
     const data = new FormData(e.currentTarget);
     inFlight.current = true; setBusy(true); setError('');
     try {
-      const bytes = crypto.getRandomValues(new Uint8Array(32));
-      const token = 'sra1_' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      const { default: QRCode } = await import('qrcode');
-      const qr = await QRCode.toDataURL(token, { width: 600, margin: 4, errorCorrectionLevel: 'M' });
-      const request: Pending = { qr, sendEmail: sendEmail && !!emailDraft.trim(), args: { p_event_id: eventId, p_type_id: String(data.get('type')), p_request_id: crypto.randomUUID(), p_token: token, p_full_name: String(data.get('holder')).trim(), p_source: effectiveSource, p_expected_price_crc: selectedPrice.known ? selectedPrice.admission : null, p_expected_transport_crc: selectedPrice.transport, p_email: String(data.get('email')).trim() || null, p_payment_reference: String(data.get('reference') || '').trim() || null } };
+      const prepared = await preparePurchaseQr(quantity);
+      qrUrl.current = prepared.url;
+      const { token, qr } = prepared.entries[0];
+      const request: Pending = { qr, entries: prepared.entries, url: prepared.url, sendEmail: sendEmail && !!emailDraft.trim(), args: { p_event_id: eventId, p_type_id: String(data.get('type')), p_request_id: crypto.randomUUID(), p_token: token, p_full_name: String(data.get('holder')).trim(), p_source: effectiveSource, p_expected_price_crc: selectedPrice.known ? selectedPrice.admission : null, p_expected_transport_crc: selectedPrice.transport, p_payment_confirmed: paymentConfirmed, p_email: String(data.get('email')).trim() || null, p_payment_reference: String(data.get('reference') || '').trim() || null } };
       setPending(request);
       inFlight.current = false;
       await send(request);
@@ -142,17 +148,17 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
       <div hidden={view !== 'import'}><Suspense fallback={<p role="status">Cargando importación CSV…</p>}><TicketImport eventId={eventId} types={types} disabled={busy || loading || !!pending || !!action || (!!result && !saved)} onProtectedChange={setImportPending} onChanged={() => { setRevision(v => v + 1); onChanged?.(); }}/></Suspense></div>
       <div hidden={view !== 'types'}><TicketTypePrices eventId={eventId} types={types} disabled={busy || loading || !!pending || !!action || importPending || (!!result && !saved)} onPendingChange={setPricesPending} onChanged={() => { setRevision(v => v + 1); onChanged?.(); }}/></div>
       <div hidden={view !== 'issue'}>{result ? <div className="issued-ticket">
-        <h3>Entrada emitida</h3><p>{result.name}</p>
-        <img src={result.qr} alt="Código QR de la entrada emitida" width={300} height={300}/>
+        <h3>{result.entries.length === 1 ? 'Entrada emitida' : result.entries.length + ' entradas emitidas'}</h3><p>{result.name}</p>
+        <div className="purchase-qrs">{result.entries.map((entry, i) => <figure key={entry.id}><img src={entry.qr} alt={`Código QR de entrada ${i + 1}`} width={200} height={200}/><figcaption>Entrada {i + 1} de {result.entries.length}</figcaption></figure>)}</div>
         <p className="ticket-id">{result.id}</p>
-        <a className="btn primary download-qr" href={result.qr} download={`santos-rock-${result.id}.png`}>Descargar QR</a>
-        <p>Guarde el QR antes de salir.</p>
-        {result.email ? <SendTicketEmail items={[{ ticket_id: result.id, token: result.token, recipient: result.email }]} autoQueue={result.sendEmail} onPendingChange={setEmailPending}/> : <p>No se indicó correo del titular. Puede entregar el QR descargado manualmente.</p>}
-        <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> Confirmo que guardé el QR</label>
-        <button className="btn quiet" disabled={!saved || emailPending} onClick={() => { setResult(null); setEmailDraft(''); setSendEmail(false); }}>Emitir otra entrada</button>
+        <a className="btn primary download-qr" href={result.url || result.qr} download={`santos-rock-${result.id}.${result.url ? 'zip' : 'png'}`}>{result.url ? 'Descargar todos los QR (ZIP)' : 'Descargar QR'}</a>
+        <p>{result.entries.length === 1 ? 'Guarde el QR antes de salir.' : 'Guarde el ZIP antes de salir y entregue un QR diferente a cada acompañante.'}</p>
+        {result.email ? <SendTicketEmail items={result.entries.map(entry => ({ ticket_id: entry.id, token: entry.token, recipient: result.email }))} autoQueue={result.sendEmail} onPendingChange={setEmailPending}/> : <p>No se indicó correo del titular. Puede entregar el QR descargado manualmente.</p>}
+        <label className="saved-check"><input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)}/> {result.entries.length === 1 ? 'Confirmo que guardé el QR' : 'Confirmo que guardé todos los QR'}</label>
+        <button className="btn quiet" disabled={!saved || emailPending} onClick={() => { if (qrUrl.current) URL.revokeObjectURL(qrUrl.current); qrUrl.current = null; setResult(null); setQuantity(1); setEmailDraft(''); setSendEmail(false); }}>Emitir otra entrada</button>
       </div>
       : pending ? <div className="notice"><p>La solicitud está pendiente de confirmación. Conserve esta pantalla abierta.</p><button className="btn quiet" disabled={busy} onClick={() => send(pending)}>{busy ? 'Confirmando…' : 'Reintentar la misma emisión'}</button></div>
-      : types.length > 0 && <form onSubmit={issue} className="issue-form"><h3>Emitir una entrada</h3><fieldset disabled={busy || loading || !!action || importPending}><label>Tipo<select name="type" value={selectedType || types[0]?.id || ''} onChange={e => setSelectedType(e.target.value)} required>{types.map(type => <option key={type.id} value={type.id}>{type.name} · {pricing(type).known ? crc(pricing(type).total) : 'Sin precio registrado'}</option>)}</select></label><PriceBreakdown price={selectedPrice}/><label>Nombre del titular<input name="holder" required minLength={2} maxLength={160}/></label><label>Correo (opcional)<input name="email" type="email" maxLength={254} value={emailDraft} onChange={e => { setEmailDraft(e.target.value); setSendEmail(false); }}/></label>{emailDraft.trim() && <EmailDeliveryChoice recipients={[emailDraft.trim()]} checked={sendEmail} onChange={setSendEmail}/>}<label>Origen<select value={effectiveSource} onChange={e => setSource(e.target.value)}>{Object.entries(sources).map(([value, name]) => <option key={value} value={value} disabled={(value === 'complimentary' && selectedPrice.paid) || (value === 'door' && selectedPrice.transport > 0)}>{name}</option>)}</select></label>{(effectiveSource === 'sinpe' || effectiveSource === 'door' || selectedPrice.paid) && <><label>Referencia de pago<input name="reference" required maxLength={160}/></label><label className="saved-check"><input type="checkbox" required/> Verifiqué el pago antes de emitir esta entrada</label></>}<button className="btn primary">{busy ? 'Emitiendo…' : 'Emitir entrada y generar QR'}</button></fieldset></form>}
+      : types.length > 0 && <form onSubmit={issue} className="issue-form"><h3>Emitir entradas</h3><fieldset disabled={busy || loading || !!action || importPending}><label>Tipo<select name="type" value={selectedType || types[0]?.id || ''} onChange={e => setSelectedType(e.target.value)} required>{types.map(type => <option key={type.id} value={type.id}>{type.name} · {pricing(type).known ? crc(pricing(type).total) : 'Sin precio registrado'}</option>)}</select></label><label>Cantidad de entradas<input type="number" min={1} max={100} step={1} value={quantity} onChange={e => setQuantity(Number(e.target.value))} required/></label><PriceBreakdown price={selectedPrice} quantity={quantity}/><label>Nombre del titular<input name="holder" required minLength={2} maxLength={160}/></label><label>Correo (opcional)<input name="email" type="email" maxLength={254} value={emailDraft} onChange={e => { setEmailDraft(e.target.value); setSendEmail(false); }}/></label>{emailDraft.trim() && <EmailDeliveryChoice recipients={[emailDraft.trim()]} checked={sendEmail} onChange={setSendEmail}/>}<label>Origen<select value={effectiveSource} onChange={e => setSource(e.target.value)}>{Object.entries(sources).filter(([value]) => !['door', 'ticketera'].includes(value)).map(([value, name]) => <option key={value} value={value} disabled={(value === 'complimentary' && selectedPrice.paid) || (value === 'door' && selectedPrice.transport > 0)}>{name}</option>)}</select></label>{(effectiveSource === 'sinpe' || effectiveSource === 'door' || selectedPrice.paid) && <><label className="saved-check"><input type="checkbox" checked={paymentConfirmed} onChange={e => setPaymentConfirmed(e.target.checked)} required/> Verifiqué el pago antes de emitir esta entrada</label></>}<button className="btn primary">{busy ? 'Emitiendo…' : quantity === 1 ? 'Emitir entrada y generar QR' : `Emitir ${quantity} entradas y generar QR`}</button></fieldset></form>}
       {!loading && !types.length && <p>Para emitir entradas, agregue primero un tipo en «Tipos de entrada».</p>}</div>
     </>}
     {loading && tickets.length > 0 && <p role="status">Actualizando entradas…</p>}
@@ -163,6 +169,6 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
   </section>;
 }
 
-function PriceBreakdown({ price }: { price: ReturnType<typeof pricing> }) {
-  return price.known ? <dl className="price-breakdown"><div><dt>Concierto</dt><dd>{crc(price.admission)}</dd></div>{price.transport > 0 && <div><dt>Transporte</dt><dd>{crc(price.transport)}</dd></div>}<div><dt>Total</dt><dd>{crc(price.total)}</dd></div></dl> : <p>Este tipo aún no tiene precio. Su emisión no registrará un importe de venta.</p>;
+function PriceBreakdown({ price, quantity = 1 }: { price: ReturnType<typeof pricing>; quantity?: number }) {
+  return price.known ? <dl className="price-breakdown"><div><dt>Concierto</dt><dd>{crc(price.admission * quantity)}</dd></div>{price.transport > 0 && <div><dt>Transporte</dt><dd>{crc(price.transport * quantity)}</dd></div>}<div><dt>Total</dt><dd>{crc(price.total * quantity)}</dd></div></dl> : <p>Este tipo aún no tiene precio. Su emisión no registrará un importe de venta.</p>;
 }

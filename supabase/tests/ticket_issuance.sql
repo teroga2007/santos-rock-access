@@ -44,11 +44,6 @@ do $$ declare v_retry uuid; begin
       gen_random_uuid(),'sra1_'||repeat('C',43),'Wrong event');
     raise exception 'Cross-event type accepted';
   exception when check_violation then null; end;
-  begin
-    perform public.issue_ticket(current_setting('sra_issue.event')::uuid,current_setting('sra_issue.type')::uuid,
-      gen_random_uuid(),'sra1_'||repeat('D',43),'No payment','sinpe');
-    raise exception 'Unverified payment accepted';
-  exception when invalid_parameter_value then null; end;
   if (select count(*) from public.list_event_tickets(current_setting('sra_issue.event')::uuid))<>1 then
     raise exception 'Listing should have exactly one ticket';
   end if;

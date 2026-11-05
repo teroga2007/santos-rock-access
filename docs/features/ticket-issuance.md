@@ -1,5 +1,7 @@
 # Emisión de entradas — 3 de noviembre de 2026
 
+Estado actual: [compras por cantidad y CSV actualizado](ticket-purchases.md). Esta guía conserva el historial anterior; donde menciona referencias obligatorias o una entrada por fila, consultar el flujo actual.
+
 El detalle del evento incluye tipos de entrada, emisión individual y listado paginado de entradas propias. No hay integración con LaTiqueteraCR ni envío de correos en esta fase.
 
 Migración `202611030006_ticket_issuance.sql` aplicada a `santos-rock-access` el 3 de noviembre de 2026, después de pruebas con rollback y dry-run que confirmó que era la única pendiente.

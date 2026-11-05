@@ -27,18 +27,18 @@ Crear personas ficticias con nombres distintos. Correos solo de buzones bajo con
 
 | Caso | Operación | Total esperado |
 | --- | --- | --- |
-| A | Una General por SINPE, referencia TEST-A | ₡10.000 |
-| B | Una General + transporte, referencia TEST-B | ₡17.500 |
+| A | Una General por SINPE | ₡10.000 |
+| B | Una General + transporte | ₡17.500 |
 | C | Una Cortesía | ₡0 |
-| D, E, F | CSV de tres General pagadas, referencias TEST-D/E/F | ₡30.000 |
+| D, E, F | CSV de tres General pagadas, cantidad 3 | ₡30.000 |
 | G | Una venta en puerta en efectivo | ₡12.000 |
 
-- [ ] Antes de emitir, comprobar tipo, importe, referencia y titular. Las ventas pagadas exigen referencia/confirmación según el flujo; cortesía funciona sin pago.
+- [ ] Antes de emitir, comprobar tipo, importe, cantidad y comprador. Las ventas pagadas exigen confirmación de pago; no requieren referencia SINPE; cortesía funciona sin pago.
 - [ ] No se puede abandonar una operación con QR pendiente sin completar la acción que pide la interfaz. Descargar cada QR y verificar que abre.
-- [ ] CSV: descargar plantilla, usar nombre/correo/referencia y revisar la vista previa antes de importar. El archivo admite de 1 a 100 personas: dividir archivos mayores.
-- [ ] Probar CSV inválido con correo incorrecto, referencia requerida vacía y persona duplicada dentro del mismo archivo: informar fila y bloquear importación. Corregir y probar el archivo válido.
+- [ ] CSV: descargar plantilla, usar nombre/correo/cantidad y revisar la vista previa antes de importar. El archivo admite de 1 a 100 entradas en total: dividir archivos mayores.
+- [ ] Probar CSV inválido con correo incorrecto, cantidad vacía, decimal o cero y comprador duplicado dentro del mismo archivo: informar fila y bloquear importación. Corregir y probar el archivo válido.
 - [ ] Importar D/E/F una sola vez, descargar ZIP y comprobar tres PNG/filas del manifiesto. No asumir que repetir el archivo en una operación nueva evita duplicados.
-- [ ] Probar venta en puerta con efectivo insuficiente y suficiente; confirmar vuelto. Probar también SINPE con referencia en una entrada adicional y registrarla aparte del total base.
+- [ ] Probar venta en puerta con efectivo insuficiente y suficiente; confirmar vuelto. Probar también SINPE sin referencia en una entrada adicional y registrarla aparte del total base.
 - [ ] En puerta no se ofrece transporte y no se usa el tipo combinado.
 - [ ] Antes de anulaciones y pruebas adicionales, reconciliar la base: 7 entradas emitidas; 6 pagadas y 1 gratuita; ₡62.000 de admisión + ₡7.500 de transporte = ₡69.500. Si agregaron entradas extra, sumar sus importes por separado.
 - [ ] Owner y ambos supervisores ven los mismos totales; filtrar por tipo/origen, ordenar columnas asc/desc y exportar CSV. El transporte se cuenta separado.
@@ -48,7 +48,7 @@ Crear personas ficticias con nombres distintos. Correos solo de buzones bajo con
 - [ ] Con correo informado y envío sin seleccionar, emitir no programa correo.
 - [ ] Seleccionar envío en una entrada nueva de prueba: comprobar destinatario y estado Pendiente. Contabilizar esa entrada aparte de la base anterior.
 - [ ] Esperar al worker (cada 15 minutos, sujeto a cola y cupo diario): comprobar recepción en bandeja/spam, remitente y PNG adjunto. Aceptado por proveedor no significa entrega confirmada.
-- [ ] Abrir el PNG recibido y canjearlo; un segundo intento debe indicar Entrada ya utilizada.
+- [ ] Copiar del correo el Código de ingreso manual completo (sra1_…), abrir Ingreso → Cargar imagen o ingresar código, pegarlo en Código de la entrada y pulsar Registrar ingreso: debe autorizarlo. Después cargar el PNG del mismo correo: debe indicar Entrada ya utilizada. El código manual no es el UUID de la entrada.
 - [ ] CSV: el envío seleccionado solo incluye filas con correo; las demás conservan su descarga de QR.
 - [ ] Si ocurre un error real, reintentar únicamente el correo; no volver a emitir ni cobrar. No provocar fallos del proveedor ni consumir deliberadamente el cupo.
 
@@ -78,7 +78,7 @@ Reservar al menos un QR sin usar para cada caso que lo necesite.
 - [ ] No borrar Test durante la reunión. Registrar incidencias y resultados antes de decidir su limpieza.
 - [ ] Acordar responsables de emitir/importar, conciliar pagos, supervisar y escanear; definir dispositivos, cargadores, conectividad y alternativa de acceso a internet.
 - [ ] Para el evento real: confirmar nombre/fecha/lugar/capacidad/precios y asignaciones; revisar totales iniciales y que no tenga datos ficticios.
-- [ ] Depurar duplicados entre todos los archivos, validar referencias y separar CSV en lotes de hasta 100. Empezar por un lote pequeño verificado antes de continuar; conservar respaldo y manifiestos.
+- [ ] Depurar duplicados entre todos los archivos, validar cantidades y separar CSV en lotes de hasta 100 entradas. Empezar por un lote pequeño verificado antes de continuar; conservar respaldo y manifiestos.
 - [ ] Activar correo solo en las filas que se necesiten y respetar el cupo disponible. Confirmar qué canal usará el resto para recibir su QR.
 - [ ] No importar masivamente ni iniciar ingreso real mientras haya fallos de permisos, doble ingreso, precios, conciliación o pérdida de QR sin resolver.
 
@@ -87,3 +87,11 @@ Reservar al menos un QR sin usar para cada caso que lo necesite.
 | Caso | Usuario/dispositivo | Resultado esperado | Resultado observado | Evidencia / pendiente |
 | --- | --- | --- | --- | --- |
 | | | | | |
+
+## Compra múltiple y correo agrupado
+
+- [ ] Emitir 3 entradas al mismo correo: total multiplicado, tres QR diferentes y un ZIP con tres PNG.
+- [ ] Esperar un solo correo con tres PNG y códigos manuales numerados; después canjear cada entrada una vez. Repetir una no bloquea a sus acompañantes.
+- [ ] CSV con cantidades 2 y 3: 2 compradores, 5 entradas; si comparten correo, se programa un único mensaje.
+- [ ] Venta en puerta por 2: verificar cobro/vuelto por ambas y ausencia de transporte.
+- [ ] Una cantidad que supera el cupo no crea entradas parciales. Reintentar una confirmación incierta no duplica la compra.

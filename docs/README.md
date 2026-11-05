@@ -10,6 +10,8 @@ El [README principal](../README.md) describe la estructura y los comandos actual
 
 ## Funcionalidades
 
+- [Compras por cantidad y correo agrupado](features/ticket-purchases.md)
+
 - [csv-import](features/csv-import.md)
 - [door-sales](features/door-sales.md)
 - [event-dashboard](features/event-dashboard.md)

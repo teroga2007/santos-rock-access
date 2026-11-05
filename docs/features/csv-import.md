@@ -1,5 +1,7 @@
 # Importación CSV — fase 010
 
+Estado actual: [compras por cantidad y CSV actualizado](ticket-purchases.md). Esta guía conserva el historial anterior; donde menciona referencias obligatorias o una entrada por fila, consultar el flujo actual.
+
 Migración 010 aplicada a `santos-rock-access` el 3 de noviembre de 2026, tras preflight transaccional y dry-run. La suite SQL pasó después de la aplicación, incluido lote máximo de 100 entradas y rechazo de 101; todos los datos de prueba se revirtieron.
 
 En Entradas y acreditaciones → Importar compradores desde CSV. Solo administradores efectivos del evento pueden importar; supervisores y scanners no reciben esta opción y la RPC los rechaza.

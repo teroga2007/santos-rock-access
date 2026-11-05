@@ -48,10 +48,8 @@ do $$ declare e uuid:=current_setting('sra_prices.event')::uuid; t uuid; a uuid;
     perform public.issue_ticket(e,t,gen_random_uuid(),'sra1_'||repeat('r',43),'Free paid holder','complimentary');
     raise exception 'Paid bundle emitted as complimentary';
   exception when invalid_parameter_value then null; end;
-  begin
-    perform public.issue_ticket(e,t,gen_random_uuid(),'sra1_'||repeat('r',43),'Unverified holder','other');
-    raise exception 'Paid sale without reference accepted';
-  exception when invalid_parameter_value then null; end;
+  r:=public.issue_ticket(e,t,gen_random_uuid(),'sra1_'||repeat('r',43),'Reference optional holder','other');
+  if (select sum(unit_price_crc) from public.order_items where ticket_id=r)<>18500 then raise exception 'Missing reference prevented financial snapshot'; end if;
   select id into t from public.ticket_types where event_id=e and name='Staff';
   r:=public.issue_ticket(e,t,gen_random_uuid(),'sra1_'||repeat('s',43),'Staff holder');
   if (select count(*) from public.order_items where ticket_id=r and kind='accreditation' and unit_price_crc=0)<>1 then

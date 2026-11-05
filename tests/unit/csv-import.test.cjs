@@ -9,40 +9,27 @@ const helper = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(helper, helper.exports, require);
 const { parseTicketCsv } = helper.exports;
 
-test('reads UTF-8 BOM, quoted names, semicolon delimiter and CRLF', () => {
-  const result = parseTicketCsv('\uFEFFnombre;correo;referencia\r\n"María, José";persona@example.com;REF-1\r\n', 'sinpe');
+test('reads UTF-8 BOM, quoted names, semicolon delimiter, quantities and CRLF', () => {
+  const result = parseTicketCsv('\uFEFFnombre;correo;cantidad\r\n"María, José";PERSONA@example.com;3\r\n');
   assert.deepEqual(result.errors, []);
-  assert.deepEqual(result.rows, [{ name: 'María, José', email: 'persona@example.com', reference: 'REF-1' }]);
+  assert.deepEqual(result.rows, [{ name: 'María, José', email: 'persona@example.com', quantity: 3 }]);
 });
-test('SINPE references required, optional for complimentary', () => {
-  const csv = 'nombre,correo,referencia\nPersona,,\n';
-  assert.ok(parseTicketCsv(csv, 'sinpe').errors.length);
-  assert.deepEqual(parseTicketCsv(csv, 'complimentary').errors, []);
+test('does not require a payment reference, and supports offline delivery without email', () => {
+  assert.deepEqual(parseTicketCsv('nombre,correo,cantidad\nPersona,,2\n').errors, []);
 });
-
-test('priced imports require payment references even through other channels', () => {
-  const csv = 'nombre,correo,referencia\nPersona,,\n';
-  assert.deepEqual(parseTicketCsv(csv, 'other').errors, []);
-  assert.ok(parseTicketCsv(csv, 'other', true).errors.length);
-  assert.deepEqual(parseTicketCsv('nombre,correo,referencia\nPersona,,OTHER-1\n', 'other', true).errors, []);
+test('rejects missing, zero, negative, decimal, scientific and oversized quantities', () => {
+  for (const qty of ['', '0', '-1', '1.5', '1e2', '101', 'NaN']) assert.ok(parseTicketCsv('nombre,correo,cantidad\nPersona,persona@example.com,' + qty).errors.length);
 });
-test('rejects duplicate people with same email and payment, ignoring case and whitespace', () => {
-  const csv = 'nombre,correo,referencia\n Persona ,PERSONA@example.com,REF-1\npersona,persona@example.com,REF-1\n';
-  assert.ok(parseTicketCsv(csv, 'sinpe').errors.some(error => error.includes('repetidas')));
+test('rejects duplicate buyer rows but allows different companions with the same email', () => {
+  assert.ok(parseTicketCsv('nombre,correo,cantidad\nPersona,PERSONA@example.com,2\n persona ,persona@example.com,3').errors.some(error => error.includes('repetido')));
+  assert.deepEqual(parseTicketCsv('nombre,correo,cantidad\nUno,persona@example.com,2\nDos,persona@example.com,3').errors, []);
 });
-test('allows different people with the same payment reference', () => {
-  const csv = 'nombre,correo,referencia\nPersona Uno,uno@example.com,REF-1\nPersona Dos,dos@example.com,REF-1\n';
-  assert.deepEqual(parseTicketCsv(csv, 'sinpe').errors, []);
+test('requires the new template, valid email and well-formed CSV', () => {
+  for (const text of ['nombre,correo,referencia\nPersona,a@example.com,REF', 'nombre,correo,cantidad\nPersona,bad,2', 'nombre,correo,cantidad\nPersona,a@example.com,2,extra', 'nombre,correo,cantidad\n']) assert.ok(parseTicketCsv(text).errors.length);
 });
-test('rejects invalid emails, missing headers, malformed rows, and empty files', () => {
-  assert.ok(parseTicketCsv('nombre,correo,referencia\nPersona,no-es-correo,REF\n', 'sinpe').errors.length);
-  assert.ok(parseTicketCsv('otro,correo\nPersona,a@example.com\n', 'other').errors.length);
-  assert.ok(parseTicketCsv('nombre,correo\nPersona,a@example.com,columna-extra\n', 'other').errors.length);
-  assert.ok(parseTicketCsv('nombre,correo,referencia\n', 'sinpe').errors.length);
-});
-test('blocks more than 100 rows', () => {
-  const csv = 'nombre,correo,referencia\n' + Array.from({ length: 101 }, (_, i) => `Persona ${i},p${i}@example.com,REF-${i}`).join('\n');
-  assert.ok(parseTicketCsv(csv, 'sinpe').errors.some(error => error.includes('100')));
+test('limits expanded tickets to 100, not just CSV rows', () => {
+  assert.deepEqual(parseTicketCsv('nombre,correo,cantidad\nPersona,a@example.com,100').errors, []);
+  assert.ok(parseTicketCsv('nombre,correo,cantidad\nUno,a@example.com,60\nDos,b@example.com,41').errors.some(error => error.includes('100')));
 });
 test('download manifest prevents spreadsheet formula execution and survives ZIP roundtrip', () => {
   const Papa = require('papaparse');

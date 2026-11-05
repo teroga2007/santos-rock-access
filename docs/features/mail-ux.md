@@ -1,5 +1,7 @@
 # Entrega de entradas por correo
 
+Actualización: [las compras múltiples envían los QR juntos](ticket-purchases.md). El cupo diario se cuenta por mensaje, no por entrada adjunta.
+
 ## Recorrido
 
 El correo es opcional. Al registrar una dirección válida aparece **Enviar por correo al emitir**. Está desmarcado inicialmente; escribir una dirección por sí solo no programa ningún mensaje. Si se modifica la dirección, se vuelve a solicitar esa elección.
@@ -38,3 +40,11 @@ Publicación completada el 3 de noviembre de 2026: despliegue `6aea984f03f8eec3d
 Verificación de este incremento: 38 recorridos de interfaz correctos (36 de la suite y dos casos finales de puerta/aceptación), nueve pruebas de correo con proveedor simulado, SQL con rollback y compilación final correcta. La migración 018 está aplicada. No se fabricaron entradas ni trabajos reales para probar la activación.
 
 La confirmación automática de entregas o rebotes mediante webhooks sigue pendiente. Las claves, cifrado, DNS y configuración de Microsoft mantienen su flujo existente.
+
+## Código manual y mensaje de entrada
+
+El correo incluye el PNG y el mismo token completo en texto (prefijo sra1_). No es el UUID de la entrada ni una segunda credencial. En Ingreso → Cargar imagen o ingresar código, copiar el código completo en Código de la entrada y pulsar Registrar ingreso. Distingue mayúsculas y minúsculas; no transcribirlo si se puede copiar. Usar cualquiera de las dos alternativas consume el único ingreso.
+
+La plantilla saluda por el primer nombre del titular y muestra fecha/hora según la zona horaria del evento, lugar, tipo, zona y contacto WhatsApp 8689-6331. Los textos y datos dinámicos se incluyen tanto en HTML como en texto plano; el token no se convierte en una URL pública ni se registra en logs.
+
+Prueba automatizada: generar un correo ficticio, extraer su código, ingresarlo manualmente en la UI y decodificar después su PNG real. Ambos envían exactamente el mismo token; el segundo intento se muestra como duplicado usando el servicio de prueba simulado. No envía correos ni consume entradas reales. Complementar en producción con una entrada nueva de Test: esperar a recibir el correo antes de canjearla, ingresar manualmente y luego escanear el adjunto para comprobar duplicado.

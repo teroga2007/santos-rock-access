@@ -30,10 +30,7 @@ do $$ declare r jsonb; repeated jsonb; begin
     jsonb_build_object('name','Import One','email','one@example.invalid','reference','PAY-1','token','sra1_'||repeat('W',43))));
     raise exception 'Partially overlapping CSV accepted';
   exception when unique_violation then null; end;
-  begin perform public.import_native_tickets(current_setting('sra_csv.event')::uuid,current_setting('sra_csv.type')::uuid,'sinpe',gen_random_uuid(),jsonb_build_array(
-    jsonb_build_object('name','No reference','email','n@example.invalid','token','sra1_'||repeat('Z',43))));
-    raise exception 'Missing SINPE reference accepted';
-  exception when invalid_parameter_value then null; end;
+
   begin perform public.import_native_tickets(current_setting('sra_csv.event')::uuid,current_setting('sra_csv.type')::uuid,'other',gen_random_uuid(),jsonb_build_array(
     jsonb_build_object('name','Invalid email','email','not-an-email','token','sra1_'||repeat('Z',43))));
     raise exception 'Invalid email accepted';

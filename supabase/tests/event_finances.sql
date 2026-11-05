@@ -33,7 +33,7 @@ begin
   perform set_config('sra_fin.type',t::text,true);
   for k in 1..6 loop
     ticket:=public.issue_priced_ticket(e,t,gen_random_uuid(),'sra1_'||repeat(chr(64+k),43),'Finance holder '||k,
-      case when k in (2,6) then 'door'::public.ticket_source else 'sinpe'::public.ticket_source end,
+      case when k in (2,6) then 'other'::public.ticket_source else 'sinpe'::public.ticket_source end,
       null,'FIN-'||k,10000,7500);
     perform set_config('sra_fin.ticket'||k,ticket::text,true);
   end loop;
@@ -74,7 +74,7 @@ do $$ declare e uuid:=current_setting('sra_fin.event')::uuid; r jsonb; v jsonb; 
     or (public.get_event_finances(e,'2026-11-03','2026-11-03')->'totals'->>'gross_crc')::numeric<>48500 then
     raise exception 'Costa Rica date boundaries incorrect'; end if;
   if (public.get_event_finances(e,null,null,current_setting('sra_fin.phase2')::uuid)->'totals'->>'gross_crc')::numeric<>13500
-    or (public.get_event_finances(e,null,null,null,'door')->'totals'->>'gross_crc')::numeric<>35000 then
+    or (public.get_event_finances(e,null,null,null,'other')->'totals'->>'gross_crc')::numeric<>35000 then
     raise exception 'Type/source filter incorrect'; end if;
   if (public.get_event_finances(current_setting('sra_fin.empty_event')::uuid)->'totals'->>'gross_crc')::numeric<>0 then
     raise exception 'Empty event is not zero'; end if;

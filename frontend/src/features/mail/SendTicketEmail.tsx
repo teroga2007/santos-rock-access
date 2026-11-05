@@ -15,7 +15,7 @@ function EmailDelivery({ items, autoQueue = false, onPendingChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [failed, setFailed] = useState(false);
-  const [jobs, setJobs] = useState<{ id: string; status: string }[] | null>(null);
+  const [jobs, setJobs] = useState<{ id: string; status: string; delivery_id?: string }[] | null>(null);
   const [sending, setSending] = useState<boolean | null>(null);
   const inFlight = useRef(false); const registered = useRef(false); const attempted = useRef(false);
   const currentItems = useRef(items); currentItems.current = items;
@@ -46,17 +46,19 @@ function EmailDelivery({ items, autoQueue = false, onPendingChange }: Props) {
   const waiting = busy || (autoQueue && availability.checking && !attempted.current);
   useEffect(() => { onPendingChange?.(waiting); return () => onPendingChange?.(false); }, [waiting, onPendingChange]);
   const enabled = sending ?? availability.enabled;
+  const recipients = Array.from(new Set(items.map(item => item.recipient?.trim().toLowerCase()).filter(Boolean)));
+  const deliveryCount = new Set(jobs?.map(job => job.delivery_id || job.id) || []).size;
   const states = [...new Set(jobs?.map(job => job.status) || [])];
   return <div className="email-send"><h4>Entrega por correo</h4>
-    {items.length === 1 ? <p className="email-recipient">Para: <strong>{items[0].recipient || 'correo registrado del titular'}</strong></p> : <details><summary>{items.length} entradas con correo · Ver destinatarios</summary><ul>{items.map((item, i) => <li key={item.ticket_id}>{item.recipient || 'Correo registrado · entrada ' + (i + 1)}</li>)}</ul></details>}
+    {items.length === 1 ? <p className="email-recipient">Para: <strong>{items[0].recipient || 'correo registrado del titular'}</strong></p> : <details><summary>{items.length} entradas · {recipients.length} correos · Ver destinatarios</summary><ul>{recipients.map(recipient => <li key={recipient}>{recipient} · {items.filter(item => item.recipient?.trim().toLowerCase() === recipient).length} entradas</li>)}</ul></details>}
     {invalidRecipient ? <p className="notice">El correo registrado no es válido. Conserve el QR para entregarlo manualmente.</p> : availability.checking && !jobs ? <p role="status">Consultando disponibilidad…</p> : jobs ? <div role="status">
-      <p className="created-message">{jobs.length === 1 ? labels[jobs[0].status] : jobs.length + ' correos registrados.'}</p>
+      <p className="created-message">{jobs.length === 1 ? labels[jobs[0].status] : deliveryCount + (deliveryCount === 1 ? ' correo registrado para ' : ' correos registrados para ') + jobs.length + ' entradas.'}</p>
       {states.some(status => status === 'pending' || status === 'processing') && <p>{enabled ? mailTiming : 'Envíos pausados. El correo queda pendiente hasta que se activen.'}</p>}
       {states.includes('submitted') && <p>Brevo aceptó el correo. La entrega en la bandeja aún no está confirmada.</p>}
       {states.some(status => ['failed','unknown','cancelled'].includes(status)) && <p className="notice">Revise el detalle en Entradas → Correos antes de volver a enviar.</p>}
       <small>Puede consultar cada estado en Entradas → Correos.</small>
-    </div> : availability.ready ? <><p>{enabled ? mailTiming : 'Envíos pausados. Puede dejar el correo pendiente para enviarlo al activar el servicio.'}</p><button className="btn quiet" disabled={busy} onClick={queue}>{busy ? 'Programando correo…' : failed ? 'Reintentar correo' : items.length === 1 ? 'Programar correo' : 'Programar ' + items.length + ' correos'}</button></> : <><p>{autoQueue ? 'No se pudo programar el correo. Guarde el QR y reintente la consulta.' : 'Correo no disponible. Guarde el QR para entregarlo manualmente.'}</p><button className="btn quiet" onClick={availability.reload}>Reintentar consulta</button></>}
+    </div> : availability.ready ? <><p>{enabled ? mailTiming : 'Envíos pausados. Puede dejar el correo pendiente para enviarlo al activar el servicio.'}</p><button className="btn quiet" disabled={busy} onClick={queue}>{busy ? 'Programando correo…' : failed ? 'Reintentar correo' : items.length === 1 ? 'Programar correo' : 'Programar ' + (recipients.length === 1 ? 'un correo' : recipients.length + ' correos') + ' con ' + items.length + ' entradas'}</button></> : <><p>{autoQueue ? 'No se pudo programar el correo. Guarde el QR y reintente la consulta.' : 'Correo no disponible. Guarde el QR para entregarlo manualmente.'}</p><button className="btn quiet" onClick={availability.reload}>Reintentar consulta</button></>}
     {message && <p className={failed ? 'notice' : 'created-message'} role={failed ? 'alert' : 'status'}>{message}</p>}
-    <details className="mail-limits"><summary>Cómo funciona el envío</summary><p>Hasta {availability.limit} intentos diarios, procesados por tandas. Programar no confirma entrega. Conserve una copia del QR.</p></details>
+    <details className="mail-limits"><summary>Cómo funciona el envío</summary><p>Un correo por destinatario y evento en esta operación, con un PNG por entrada. Hasta {availability.limit} intentos de correo diarios, procesados por tandas. Programar no confirma entrega. Conserve una copia del QR.</p></details>
   </div>;
 }
