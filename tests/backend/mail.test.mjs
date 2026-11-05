@@ -145,15 +145,17 @@ test('ticket email personalizes the greeting and uses event timezone, venue and 
 test('bundle sends distinct QR attachments and manual codes in one message and rejects mixed recipients', async () => {
   const base = { id: randomUUID(), ticket_id: ticket, recipient: 'buyer@example.invalid', holder_name: 'Comprador', event_name: 'Festival', starts_at: '2027-01-16T23:00:00Z', timezone: 'America/Costa_Rica', type_name: 'General', access_zone: 'general' };
   const entries = Array.from({ length: 3 }, (_, i) => ({ job: { ...base, id: randomUUID(), ticket_id: randomUUID() }, token: 'sra1_' + String.fromCharCode(65 + i).repeat(43) }));
-  const message = await emailBundleMessage(entries, { from: 'test@example.invalid' }, 'delivery-test');
+  const deliveryKey = randomUUID();
+  const message = await emailBundleMessage(entries, { from: 'test@example.invalid' }, deliveryKey);
   assert.equal(message.attachment.length, 3);
   assert.equal(new Set(message.attachment.map(a => a.content)).size, 3);
   assert.equal(message.to.length, 1);
-  assert.equal(message.headers.idempotencyKey, 'delivery-test');
+  assert.equal(message.headers.idempotencyKey, deliveryKey);
+  await assert.rejects(() => emailBundleMessage(entries, {}, randomUUID() + ':' + randomUUID()), /invalid_idempotency_key/);
   for (const entry of entries) { assert.ok(message.htmlContent.includes(entry.token)); assert.ok(message.textContent.includes(entry.token)); }
   assert.ok(message.subject.includes('3 entradas'));
   assert.ok(message.textContent.includes('Entrada 3 de 3'));
-  await assert.rejects(() => emailBundleMessage([entries[0], { ...entries[1], job: { ...entries[1].job, recipient: 'other@example.invalid' } }], {}, 'mixed'));
+  await assert.rejects(() => emailBundleMessage([entries[0], { ...entries[1], job: { ...entries[1].job, recipient: 'other@example.invalid' } }], {}, randomUUID()));
 });
 test('grouped worker submits once for all valid companions and finalizes their shared delivery', async () => {
   const previousEnv = { ...process.env }; const originalFetch = global.fetch;
@@ -165,7 +167,7 @@ test('grouped worker submits once for all valid companions and finalizes their s
     const path = String(url);
     if (path.includes('/rpc/claim_ticket_email_deliveries')) return Response.json(ids.map(id => ({ id, lease_id: lease, delivery_id: delivery })));
     if (path.includes('/rpc/get_claimed_ticket_email_delivery')) return Response.json(jobs);
-    if (path.includes('api.brevo.com')) { providerCalls++; const message = JSON.parse(options.body); assert.equal(message.attachment.length, 2); assert.equal(message.to.length, 1); return Response.json({ messageId: 'group-test' }, { status: 201 }); }
+    if (path.includes('api.brevo.com')) { providerCalls++; const message = JSON.parse(options.body); assert.equal(message.attachment.length, 2); assert.equal(message.to.length, 1); assert.equal(message.headers.idempotencyKey, lease); assert.match(message.headers.idempotencyKey, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i); return Response.json({ messageId: 'group-test' }, { status: 201 }); }
     if (path.includes('/rpc/finish_ticket_email_delivery')) { finish = JSON.parse(options.body); return new Response(null, { status: 204 }); }
     throw new Error('Unexpected external call');
   };

@@ -41,7 +41,7 @@ export default async function handler() {
       if (!jobs.length) { status = 'cancelled'; errorCode = 'ticket_no_longer_sendable'; }
       else {
         let message;
-        try { message = await emailBundleMessage(jobs.map(job => ({ job, token: decryptToken(job.encrypted_token, job.ticket_id, cfg.key) })), cfg, (claim.delivery_id || claim.id) + ':' + claim.lease_id); }
+        try { message = await emailBundleMessage(jobs.map(job => ({ job, token: decryptToken(job.encrypted_token, job.ticket_id, cfg.key) })), cfg, claim.lease_id); }
         catch { status = 'failed'; throw new Error('credential_preparation_failed'); }
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
           method: 'POST', headers: { 'api-key': cfg.apiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -50,7 +50,14 @@ export default async function handler() {
         if (response.status === 201) {
           const result = await response.json();
           status = 'submitted'; providerId = typeof result.messageId === 'string' ? result.messageId : null;
-        } else if (response.status >= 400 && response.status < 500) { status = 'failed'; errorCode = `brevo_http_${response.status}`; }
+        } else if (response.status >= 400 && response.status < 500) {
+          status = 'failed'; errorCode = `brevo_http_${response.status}`;
+          // Store only recognized provider codes; never log response messages or payloads.
+          try {
+            const body = await response.json();
+            if (['invalid_parameter', 'missing_parameter', 'out_of_range', 'unauthorized', 'duplicate_parameter'].includes(body.code)) errorCode += ':' + body.code;
+          } catch { /* The HTTP status remains sufficient if the body is not JSON. */ }
+        }
         else { status = 'unknown'; errorCode = `brevo_http_${response.status}`; }
       }
     } catch (failure) { errorCode = failure.message === 'credential_preparation_failed' ? failure.message : 'provider_or_worker_uncertain'; }

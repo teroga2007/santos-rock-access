@@ -86,6 +86,7 @@ export async function emailMessage(job, token, cfg) {
 }
 
 export async function emailBundleMessage(entries, cfg, deliveryId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deliveryId || '')) throw new Error('invalid_idempotency_key');
   if (!Array.isArray(entries) || entries.length < 1 || entries.length > 100) throw new Error('invalid_delivery');
   const first = entries[0].job;
   if (entries.some(({ job }) => job.event_name !== first.event_name || (job.event_id && first.event_id && job.event_id !== first.event_id) || job.recipient.trim().toLowerCase() !== first.recipient.trim().toLowerCase())) throw new Error('delivery_mismatch');
