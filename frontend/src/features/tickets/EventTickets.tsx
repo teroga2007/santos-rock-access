@@ -1,3 +1,4 @@
+import { ListPagination, useDebouncedSearch } from '../../components/ListPagination';
 import { preparePurchaseQr, type PurchaseQr } from './purchaseQr';
 import { EmailDeliveryChoice } from '../mail/EmailDeliveryChoice';
 import { SortHeader, type SortState } from '../../components/tableSort';
@@ -11,7 +12,7 @@ const TicketActions = lazy(() => import('./TicketActions').then(module => ({ def
 const TicketImport = lazy(() => import('./TicketImport').then(module => ({ default: module.TicketImport })));
 
 type TicketType = PricedTicketType;
-type Ticket = { id: string; type_name: string; full_name: string; source: string; status: string; issued_at: string };
+type Ticket = { id: string; type_name: string; full_name: string; email?: string | null; source: string; status: string; issued_at: string };
 type Issue = { p_event_id: string; p_type_id: string; p_request_id: string; p_token: string; p_full_name: string; p_source: string; p_email: string | null; p_payment_reference: string | null; p_expected_price_crc: number | null; p_expected_transport_crc: number; p_payment_confirmed: boolean };
 type Pending = { args: Issue; qr: string; entries: PurchaseQr[]; url: string | null; sendEmail: boolean };
 const sources: Record<string, string> = { complimentary: 'Cortesía / acreditación', sinpe: 'SINPE', door: 'Puerta', other: 'Otro', ticketera: 'La Tiquetera' };
@@ -36,6 +37,14 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
   const [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState<number | null>(null);
+  const [totalAll, setTotalAll] = useState(0);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const searchState = useDebouncedSearch(search);
+  function clearFilters() { setSearch(''); setStatusFilter(''); setSourceFilter(''); setPage(0); }
   const [tableSort, setTableSort] = useState<SortState>({ key: 'issued_at', direction: 'desc' });
   function sortTickets(key: string) { setTableSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' })); setPage(0); }
   const [quantity, setQuantity] = useState(1);
@@ -83,20 +92,23 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
   }, [eventId, organizationId, userId]);
 
   useEffect(() => {
-    if (!permission || !supabase) return;
+    if (!permission || !supabase || searchState.pending) return;
     const client = supabase;
     let active = true;
     setLoading(true); setError('');
     Promise.all([
       client.from('ticket_types').select('id,name,capacity,access_zone,price_crc,transport_price_crc,category').eq('event_id', eventId).order('created_at'),
-      client.rpc('list_event_tickets_sorted', { p_event_id: eventId, p_limit: 20, p_offset: page * 20, p_sort_by: tableSort.key, p_ascending: tableSort.direction === 'asc' }),
+      client.rpc('search_event_tickets', { p_event_id: eventId, p_query: searchState.query, p_status: statusFilter || null, p_source: sourceFilter || null, p_limit: pageSize, p_offset: page * pageSize, p_sort_by: tableSort.key, p_ascending: tableSort.direction === 'asc' }),
     ]).then(([typeResult, ticketResult]) => {
       if (!active) return;
-      if (typeResult.error || ticketResult.error) setError(errorText(ticketResult.error?.code || typeResult.error?.code || ''));
-      setTypes(typeResult.data || []); setSelectedType(current => typeResult.data?.some(type => type.id === current) ? current : ''); setTickets(ticketResult.data || []); setLoading(false);
-    }).catch(() => { if (active) { setError('No se pudieron cargar las entradas.'); setLoading(false); } });
+      if (typeResult.error || ticketResult.error || !Array.isArray(ticketResult.data?.items) || !Number.isSafeInteger(ticketResult.data?.total)) { setError('No se pudo consultar el listado. Actualice para reintentar.'); setTickets([]); setTotal(null); setLoading(false); return; }
+      setTypes(typeResult.data || []); setSelectedType(current => typeResult.data?.some(type => type.id === current) ? current : '');
+      const lastPage = Math.max(0, Math.ceil(ticketResult.data.total / pageSize) - 1);
+      if (page > lastPage) { setPage(lastPage); return; }
+      setTickets(ticketResult.data.items); setTotal(ticketResult.data.total); setTotalAll(ticketResult.data.total_all); setLoading(false);
+    }).catch(() => { if (active) { setError('No se pudieron cargar las entradas.'); setTickets([]); setTotal(null); setLoading(false); } });
     return () => { active = false; };
-  }, [permission, eventId, revision, page, refreshKey, tableSort]);
+  }, [permission, eventId, revision, page, pageSize, refreshKey, tableSort, searchState.query, searchState.pending, statusFilter, sourceFilter]);
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
@@ -163,9 +175,9 @@ export function EventTickets({ eventId, organizationId, userId, eventStatus, ref
     </>}
     {loading && tickets.length > 0 && <p role="status">Actualizando entradas…</p>}
     {closed && <p>Este evento está cerrado o cancelado; no admite nuevas emisiones.</p>}
-    <div hidden={view !== 'list'}><div className="form-heading"><h3>Entradas emitidas</h3><button className="btn quiet" disabled={busy || loading} onClick={() => setRevision(v => v + 1)}>Actualizar</button></div>{loading && !tickets.length ? <p role="status">Cargando entradas…</p> : tickets.length ? <div className="ticket-table"><table aria-busy={loading}><thead><tr><SortHeader column="full_name" sort={tableSort} onSort={sortTickets} disabled={loading || busy}>Titular</SortHeader><SortHeader column="type_name" sort={tableSort} onSort={sortTickets} disabled={loading || busy}>Tipo</SortHeader><SortHeader column="source" sort={tableSort} onSort={sortTickets} disabled={loading || busy}>Origen</SortHeader><SortHeader column="status" sort={tableSort} onSort={sortTickets} disabled={loading || busy}>Estado</SortHeader><SortHeader column="issued_at" sort={tableSort} onSort={sortTickets} disabled={loading || busy}>Emitida</SortHeader>{permission === 'admin' && <th>Acciones</th>}</tr></thead><tbody>{tickets.map(ticket => <tr key={ticket.id}><td title={ticket.id}>{ticket.full_name}</td><td>{ticket.type_name}</td><td>{sources[ticket.source] || ticket.source}</td><td><span className={'status-badge status-' + ticket.status}>{statuses[ticket.status] || ticket.status}</span></td><td>{new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }).format(new Date(ticket.issued_at))}</td>{permission === 'admin' && <td>{ticket.status === 'issued' && ticket.source !== 'ticketera' ? <div className="ticket-row-actions"><button className="btn quiet" disabled={busy || loading || importPending || !!pending || (!!result && !saved) || !!action || closed} onClick={() => { setResult(null); setAction({ ticket, action: 'reissue' }); }}>Reemitir QR</button><button className="btn quiet" disabled={busy || loading || importPending || !!pending || (!!result && !saved) || !!action} onClick={() => { setResult(null); setAction({ ticket, action: 'void' }); }}>Anular</button></div> : '—'}</td>}</tr>)}</tbody></table></div> : <p>No hay entradas para mostrar.</p>}
+    <div hidden={view !== 'list'}><div className="form-heading"><h3>Entradas emitidas</h3><button className="btn quiet" disabled={busy || loading} onClick={() => setRevision(v => v + 1)}>Actualizar</button></div><div className="list-filters"><label>Buscar entradas<input type="search" maxLength={160} value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="Nombre, correo, tipo o ID" disabled={busy}/></label><label>Estado de entrada<select aria-label="Estado de entrada" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(0); }} disabled={busy}><option value="">Todos los estados</option>{Object.entries(statuses).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>Origen de entrada<select aria-label="Origen de entrada" value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(0); }} disabled={busy}><option value="">Todos los orígenes</option>{Object.entries(sources).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>{(search || statusFilter || sourceFilter) && <button className="btn quiet" onClick={clearFilters} disabled={busy}>Limpiar filtros</button>}</div>{searchState.pending && <p role="status">Buscando entradas…</p>}{(loading || searchState.pending) && !tickets.length ? <p role="status">Cargando entradas…</p> : tickets.length ? <div className="ticket-table"><table aria-busy={loading || searchState.pending}><thead><tr><SortHeader column="full_name" sort={tableSort} onSort={sortTickets} disabled={loading || busy || searchState.pending}>Titular</SortHeader><SortHeader column="type_name" sort={tableSort} onSort={sortTickets} disabled={loading || busy || searchState.pending}>Tipo</SortHeader><SortHeader column="source" sort={tableSort} onSort={sortTickets} disabled={loading || busy || searchState.pending}>Origen</SortHeader><SortHeader column="status" sort={tableSort} onSort={sortTickets} disabled={loading || busy || searchState.pending}>Estado</SortHeader><SortHeader column="issued_at" sort={tableSort} onSort={sortTickets} disabled={loading || busy || searchState.pending}>Emitida</SortHeader>{permission === 'admin' && <th>Acciones</th>}</tr></thead><tbody>{tickets.map(ticket => <tr key={ticket.id}><td title={ticket.id}>{ticket.full_name}{ticket.email && <small>{ticket.email}</small>}</td><td>{ticket.type_name}</td><td>{sources[ticket.source] || ticket.source}</td><td><span className={'status-badge status-' + ticket.status}>{statuses[ticket.status] || ticket.status}</span></td><td>{new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }).format(new Date(ticket.issued_at))}</td>{permission === 'admin' && <td>{ticket.status === 'issued' && ticket.source !== 'ticketera' ? <div className="ticket-row-actions"><button className="btn quiet" disabled={busy || loading || searchState.pending || importPending || !!pending || (!!result && !saved) || !!action || closed} onClick={() => { setResult(null); setAction({ ticket, action: 'reissue' }); }}>Reemitir QR</button><button className="btn quiet" disabled={busy || loading || searchState.pending || importPending || !!pending || (!!result && !saved) || !!action} onClick={() => { setResult(null); setAction({ ticket, action: 'void' }); }}>Anular</button></div> : '—'}</td>}</tr>)}</tbody></table></div> : !error && <div className="list-empty"><p>{search || statusFilter || sourceFilter ? 'No hay entradas que coincidan con la búsqueda.' : 'No hay entradas para mostrar.'}</p>{(search || statusFilter || sourceFilter) && <button className="btn quiet" onClick={clearFilters}>Limpiar búsqueda</button>}</div>}
     {action && <Suspense fallback={<p role="status">Cargando acciones de la entrada…</p>}><TicketActions key={action.ticket.id + action.action} ticket={action.ticket} action={action.action} onClose={() => setAction(null)} onChanged={() => { setRevision(v => v + 1); onChanged?.(); }} onPendingChange={setActionPending}/></Suspense>}
-    <div className="ticket-pagination"><button className="btn quiet" disabled={busy || loading || page === 0} onClick={() => setPage(v => v - 1)}>Anterior</button><span>Página {page + 1}</span><button className="btn quiet" disabled={busy || loading || tickets.length < 20} onClick={() => setPage(v => v + 1)}>Siguiente</button></div></div>
+    {total !== null && !error && <ListPagination page={page} pageSize={pageSize} total={total} totalAll={totalAll} noun="entradas" disabled={busy || loading || searchState.pending} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(0); }}/>}</div>
   </section>;
 }
 

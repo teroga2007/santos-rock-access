@@ -10,6 +10,8 @@ El [README principal](../README.md) describe la estructura y los comandos actual
 
 ## Funcionalidades
 
+- [Búsqueda y paginación de listados](features/list-search-pagination.md)
+
 - [Compras por cantidad y correo agrupado](features/ticket-purchases.md)
 
 - [csv-import](features/csv-import.md)

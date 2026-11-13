@@ -134,11 +134,16 @@ test('ticket email personalizes the greeting and uses event timezone, venue and 
   assert.match(message.textContent, /5:00/);
   assert.ok(message.textContent.includes('Rancho Turístico El Guayabal, Santa María de Dota.'));
   assert.ok(message.textContent.includes('Tipo: Staff\nZona: General'));
+  assert.ok(!message.textContent.includes('Prepárese'));
+  assert.ok(!message.htmlContent.includes('Prepárese'));
+  assert.ok(message.htmlContent.includes('href="https://maps.app.goo.gl/aauKVKreKBTNjybB6"'));
+  assert.ok(message.textContent.includes('Cómo llegar: https://maps.app.goo.gl/aauKVKreKBTNjybB6'));
+  assert.ok(message.textContent.includes('solo si la imagen del QR tiene problemas para cargar'));
   assert.ok(message.subject.includes('Festival Santos Rock 2027'));
   const other = await emailMessage({ id: randomUUID(), ticket_id: ticket, recipient: 'test@example.invalid', event_name: 'Otro evento', venue: null, starts_at: '2028-02-01T01:00:00Z', timezone: 'America/Costa_Rica', type_name: 'General', access_zone: 'general' }, token, { from: 'pases@example.invalid' });
   assert.ok(other.textContent.startsWith('¡Hola! 🤘'));
   assert.ok(other.textContent.includes('Otro evento'));
-  assert.ok(other.textContent.includes('Lugar por definir'));
+  assert.ok(other.textContent.includes('Rancho Turístico El Guayabal, Santa María de Dota.'));
   assert.ok(!other.textContent.includes('2027'));
 });
 
@@ -155,6 +160,9 @@ test('bundle sends distinct QR attachments and manual codes in one message and r
   for (const entry of entries) { assert.ok(message.htmlContent.includes(entry.token)); assert.ok(message.textContent.includes(entry.token)); }
   assert.ok(message.subject.includes('3 entradas'));
   assert.ok(message.textContent.includes('Entrada 3 de 3'));
+  assert.ok(message.textContent.includes('solo si la imagen del QR tiene problemas para cargar'));
+  assert.ok(message.htmlContent.includes('solo si la imagen del QR tiene problemas para cargar'));
+  assert.ok(message.textContent.includes('Cómo llegar: https://maps.app.goo.gl/aauKVKreKBTNjybB6'));
   await assert.rejects(() => emailBundleMessage([entries[0], { ...entries[1], job: { ...entries[1].job, recipient: 'other@example.invalid' } }], {}, randomUUID()));
 });
 test('grouped worker submits once for all valid companions and finalizes their shared delivery', async () => {

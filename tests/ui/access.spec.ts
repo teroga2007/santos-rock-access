@@ -6,7 +6,7 @@ const organizationId = '33333333-3333-4333-8333-333333333333';
 const ticketId = '44444444-4444-4444-8444-444444444444';
 const event = { id: eventId, organization_id: organizationId, name: 'Encuentro Santos Rock', venue: 'Los Santos', starts_at: '2027-01-16T22:00:00Z', ends_at: null, timezone: 'America/Costa_Rica', status: 'live' };
 
-async function fixture(page: Page, role: string, options: { failPermissions?: boolean; uncertainIssue?: boolean; priced?: boolean; financeError?: boolean; emptyFinance?: boolean; deleteError?: boolean; door?: boolean; uncertainDoor?: boolean; staleDoor?: boolean; typeInUse?: boolean; manyTickets?: boolean; mailEnabled?: boolean; mailUnavailable?: boolean; mailFailureOnce?: boolean; mailStatus?: string; mailGate?: Promise<void> } = {}) {
+async function fixture(page: Page, role: string, options: { failPermissions?: boolean; uncertainIssue?: boolean; priced?: boolean; financeError?: boolean; emptyFinance?: boolean; deleteError?: boolean; door?: boolean; uncertainDoor?: boolean; staleDoor?: boolean; typeInUse?: boolean; manyTickets?: boolean; listCount?: number; listError?: boolean; mailEnabled?: boolean; mailUnavailable?: boolean; mailFailureOnce?: boolean; mailStatus?: string; mailGate?: Promise<void> } = {}) {
   const writes: string[] = [];
   const redeemed = new Set<string>();
   let deleted = false;
@@ -77,19 +77,19 @@ async function fixture(page: Page, role: string, options: { failPermissions?: bo
     if (path.endsWith('/rpc/get_ticket_email_recipient')) return respond('titular@example.com');
     if (path.endsWith('/rpc/manage_ticket_credential')) { writes.push('reissue'); return respond(ticketId); }
     if (path.endsWith('/rpc/get_event_dashboard')) return respond({ generated_at: '2026-11-03T18:00:00Z', event_status: event.status, totals: { total: 10, admitted: 3, pending: 7, voided: 0 }, sources: [], types: [], recent: [] });
-    if (path.endsWith('/rpc/list_event_tickets_sorted') && options.manyTickets) {
+    if (path.endsWith('/rpc/search_event_tickets') || path.endsWith('/rpc/search_event_email_deliveries')) {
+      if (options.listError) return respond({ code: '08006' }, 503);
       const q = route.request().postDataJSON();
-      const rows = Array.from({ length: 25 }, (_, i) => ({ id: '44444444-4444-4444-8444-' + String(i + 1).padStart(12, '0'), full_name: 'Persona ' + String(i + 1).padStart(2, '0'), type_name: 'General', source: 'complimentary', status: 'issued', issued_at: new Date(Date.UTC(2026, 10, 3, 18, i)).toISOString() }));
-      rows.sort((a, b) => String(a[q.p_sort_by as keyof typeof a]).localeCompare(String(b[q.p_sort_by as keyof typeof b])) * (q.p_ascending ? 1 : -1));
-      return respond(rows.slice(q.p_offset, q.p_offset + q.p_limit));
+      const mail = path.endsWith('/rpc/search_event_email_deliveries');
+      const count = options.listCount ?? (options.manyTickets ? 25 : mail ? 0 : 1);
+      const rows = Array.from({ length: count }, (_, i) => mail
+        ? { id: String(i), recipient: 'persona' + String(i + 1).padStart(2, '0') + '@example.com', ticket_count: 2, cancelled_count: 0, status: 'pending', attempts: i + 1, created_at: new Date(Date.UTC(2026, 10, 3, 18, i)).toISOString(), last_error: null }
+        : { id: count === 1 ? ticketId : '44444444-4444-4444-8444-' + String(i + 1).padStart(12, '0'), full_name: count === 1 ? 'Persona invitada' : 'Persona ' + String(i + 1).padStart(2, '0'), email: 'persona' + String(i + 1).padStart(2, '0') + '@example.com', type_name: 'General', source: 'complimentary', status: 'issued', issued_at: new Date(Date.UTC(2026, 10, 3, 18, i)).toISOString() });
+      const normalize = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const filtered = rows.filter(row => (!q.p_status || row.status === q.p_status) && (!q.p_source || ('source' in row && row.source === q.p_source)) && normalize(q.p_query || '').split(/\s+/).every((word: string) => normalize(Object.values(row).join(' ')).includes(word)));
+      filtered.sort((a, b) => (q.p_sort_by === 'attempts' ? Number('attempts' in a ? a.attempts : 0) - Number('attempts' in b ? b.attempts : 0) : String(a[q.p_sort_by as keyof typeof a]).localeCompare(String(b[q.p_sort_by as keyof typeof b]))) * (q.p_ascending ? 1 : -1));
+      return respond({ items: filtered.slice(q.p_offset, q.p_offset + q.p_limit), total: filtered.length, total_all: rows.length, ticket_total: mail ? filtered.length * 2 : filtered.length });
     }
-    if (path.endsWith('/rpc/list_event_email_deliveries')) {
-      const q = route.request().postDataJSON();
-      const rows = options.manyTickets ? Array.from({ length: 25 }, (_, i) => ({ id: String(i), ticket_id: ticketId, recipient: 'persona' + String(i + 1).padStart(2, '0') + '@example.com', status: 'pending', attempts: i + 1, created_at: new Date(Date.UTC(2026, 10, 3, 18, i)).toISOString(), last_error: null })) : [];
-      rows.sort((a, b) => (q.p_sort_by === 'attempts' ? a.attempts - b.attempts : String(a[q.p_sort_by as keyof typeof a]).localeCompare(String(b[q.p_sort_by as keyof typeof b]))) * (q.p_ascending ? 1 : -1));
-      return respond(rows.slice(q.p_offset, q.p_offset + q.p_limit));
-    }
-    if (path.endsWith('/rpc/list_event_tickets_sorted')) return respond([{ id: ticketId, full_name: 'Persona invitada', type_name: 'General', source: 'complimentary', status: 'issued', issued_at: '2026-11-03T18:00:00Z' }]);
     if (path.endsWith('/rpc/issue_priced_ticket')) {
       writes.push('issue');
       return options.uncertainIssue ? respond({ code: '08006' }, 503) : respond(ticketId);
@@ -501,8 +501,8 @@ test('ticket sort is requested before pagination and resets to the first page', 
   const table = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Titular', exact: true }) });
   await expect(table.locator('tbody tr').first()).toContainText('Persona 25');
   await page.getByRole('button', { name: 'Siguiente', exact: true }).click();
-  await expect(page.getByText('Página 2', { exact: true })).toBeVisible();
-  const query = page.waitForRequest(r => r.url().endsWith('/rpc/list_event_tickets_sorted') && r.postDataJSON()?.p_sort_by === 'full_name');
+  await expect(page.getByText('Página 2 de 2', { exact: true })).toBeVisible();
+  const query = page.waitForRequest(r => r.url().endsWith('/rpc/search_event_tickets') && r.postDataJSON()?.p_sort_by === 'full_name');
   await table.getByRole('columnheader', { name: 'Titular', exact: true }).getByRole('button').click();
   expect((await query).postDataJSON()).toMatchObject({ p_offset: 0, p_ascending: true });
   await expect(table.locator('tbody tr').first()).toContainText('Persona 01');
@@ -510,7 +510,7 @@ test('ticket sort is requested before pagination and resets to the first page', 
   await expect(table.locator('tbody tr').first()).toContainText('Persona 21');
   await table.getByRole('columnheader', { name: 'Titular', exact: true }).getByRole('button').click();
   await expect(table.locator('tbody tr').first()).toContainText('Persona 25');
-  await expect(page.getByText('Página 1', { exact: true })).toBeVisible();
+  await expect(page.getByText('Página 1 de 2', { exact: true })).toBeVisible();
 });
 test('email attempts sort numerically across pages', async ({ page }) => {
   await fixture(page, 'owner', { manyTickets: true }); await page.goto('/events/' + eventId);
@@ -519,10 +519,10 @@ test('email attempts sort numerically across pages', async ({ page }) => {
   const table = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Intentos', exact: true }) });
   await expect(table.locator('tbody tr').first()).toContainText('persona25@');
   await page.getByRole('button', { name: 'Siguiente', exact: true }).click();
-  await expect(page.locator('.mail-queue').getByText('Página 2', { exact: true })).toBeVisible();
+  await expect(page.locator('.mail-queue').getByText('Página 2 de 2', { exact: true })).toBeVisible();
   await table.getByRole('columnheader', { name: 'Intentos', exact: true }).getByRole('button').click();
   await expect(table.locator('tbody tr').first()).toContainText('persona01@');
-  await expect(page.locator('.mail-queue').getByText('Página 1', { exact: true })).toBeVisible();
+  await expect(page.locator('.mail-queue').getByText('Página 1 de 2', { exact: true })).toBeVisible();
   await table.getByRole('columnheader', { name: 'Intentos', exact: true }).getByRole('button').click();
   await expect(table.locator('tbody tr').first()).toContainText('persona25@');
 });
@@ -741,4 +741,89 @@ test('changing quantity requires a new payment confirmation', async ({ page }) =
   await confirmation.check();
   await page.getByLabel('Cantidad de entradas', { exact: true }).fill('3');
   await expect(confirmation).not.toBeChecked();
+});
+
+async function openTicketList(page: Page) {
+  await page.goto('/events/' + eventId);
+  await page.getByRole('navigation', { name: 'Secciones del evento' }).getByRole('button', { name: 'Entradas', exact: true }).click();
+}
+
+test('ticket search covers every page and navigation has exact totals, jump and page sizes', async ({ page }) => {
+  await fixture(page, 'owner', { listCount: 125 }); await openTicketList(page);
+  const pagination = page.getByRole('navigation', { name: 'Paginación de entradas' });
+  await expect(pagination).toContainText('Página 1 de 7');
+  await expect(pagination).toContainText('125 entradas');
+  await pagination.getByRole('button', { name: 'Última página', exact: true }).click();
+  await expect(pagination).toContainText('Página 7 de 7');
+  await expect(pagination.getByRole('button', { name: 'Siguiente', exact: true })).toBeDisabled();
+  const query = page.waitForRequest(r => r.url().endsWith('/rpc/search_event_tickets') && r.postDataJSON().p_query === 'persona01@example.com');
+  await page.getByLabel('Buscar entradas', { exact: true }).fill('persona01@example.com');
+  expect((await query).postDataJSON().p_offset).toBe(0);
+  await expect(pagination).toContainText('1 entrada');
+  await expect(pagination).toContainText('125 en total');
+  await expect(page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Titular', exact: true }) }).locator('tbody tr')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Limpiar filtros', exact: true }).click();
+  await expect(pagination).toContainText('Página 1 de 7');
+  await pagination.getByLabel('Ir a página', { exact: true }).fill('4');
+  await pagination.getByRole('button', { name: 'Ir', exact: true }).click();
+  await expect(pagination).toContainText('Página 4 de 7');
+  await pagination.getByLabel('Por página', { exact: true }).selectOption('50');
+  await expect(pagination).toContainText('Página 1 de 3');
+  await expect(page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Titular', exact: true }) }).locator('tbody tr')).toHaveCount(50);
+});
+
+test('email search displays message and ticket totals and a recoverable empty state', async ({ page }) => {
+  await fixture(page, 'owner', { listCount: 25 }); await openTicketList(page);
+  await page.getByRole('button', { name: 'Correos', exact: true }).click();
+  const pagination = page.getByRole('navigation', { name: 'Paginación de correos' });
+  await expect(pagination).toContainText('25 correos');
+  await expect(pagination).toContainText('50 entradas asociadas');
+  await pagination.getByRole('button', { name: 'Última página', exact: true }).click();
+  await expect(pagination).toContainText('Página 2 de 2');
+  await page.getByLabel('Buscar correos', { exact: true }).fill('persona01@example.com');
+  await expect(pagination).toContainText('1 correo');
+  await expect(pagination).toContainText('2 entradas asociadas');
+  await page.getByLabel('Estado del correo', { exact: true }).selectOption('failed');
+  await expect(page.getByText('No hay correos que coincidan con la búsqueda.', { exact: true })).toBeVisible();
+  await expect(pagination).toContainText('Página 0 de 0');
+  await expect(pagination.getByRole('button', { name: 'Siguiente', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Limpiar búsqueda', exact: true }).click();
+  await expect(pagination).toContainText('25 correos');
+});
+
+test('pagination supports keyboard and mobile without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await fixture(page, 'owner', { listCount: 125 }); await openTicketList(page);
+  const pagination = page.getByRole('navigation', { name: 'Paginación de entradas' });
+  await expect(pagination.getByRole('button', { name: 'Página 3', exact: true })).toBeEnabled();
+  await pagination.getByRole('button', { name: 'Página 3', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(pagination).toContainText('Página 3 de 7');
+  await expect(pagination.getByRole('button', { name: 'Página 3', exact: true })).toHaveAttribute('aria-current', 'page');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await pagination.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/pagination-mobile.png' });
+});
+
+test('refresh clamps a page that disappeared instead of stranding the user', async ({ page }) => {
+  const options = { listCount: 65 };
+  await fixture(page, 'owner', options); await openTicketList(page);
+  const pagination = page.getByRole('navigation', { name: 'Paginación de entradas' });
+  await pagination.getByRole('button', { name: 'Última página', exact: true }).click();
+  await expect(pagination).toContainText('Página 4 de 4');
+  options.listCount = 5;
+  await page.getByRole('button', { name: 'Actualizar', exact: true }).click();
+  await expect(pagination).toContainText('Página 1 de 1');
+  await expect(pagination).toContainText('5 entradas');
+});
+
+test('search failure shows an error instead of fabricated zero totals', async ({ page }) => {
+  const options = { listCount: 25, listError: true };
+  await fixture(page, 'owner', options); await openTicketList(page);
+  await expect(page.getByRole('alert')).toContainText('No se pudo consultar el listado');
+  await expect(page.getByRole('navigation', { name: 'Paginación de entradas' })).toHaveCount(0);
+  await expect(page.getByText('No hay entradas para mostrar.', { exact: true })).toHaveCount(0);
+  options.listError = false;
+  await page.getByRole('button', { name: 'Actualizar', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Paginación de entradas' })).toContainText('25 entradas');
 });
